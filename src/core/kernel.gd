@@ -52,7 +52,23 @@ func available_actions() -> Array:
 	out.append(_action("inspect","Осмотреться",60,"Замечать детали, а не гадать. Время идёт и при осмотре.","Мир"))
 	out.append(_action("listen","Прислушаться",20,"Выделить тихие звуки обстановки. Пока вы слушаете, мир не замирает.","Мир"))
 	out.append(_action("retreat","Отступить от заражённого",30,"Разорвать близкий контакт ценой времени и физической нагрузки.","Опасность"))
+	out.append(_action("shove","Оттолкнуть фигуру",18,"Приложить импульс руками, чтобы разорвать контакт или вывести противника из равновесия.","Опасность"))
+	out.append(_action("break_grapple","Освободиться от захвата",12,"Вывернуть удерживаемую конечность; результат зависит от хватки и моторики.","Опасность"))
 	var graph: Dictionary = modules.world.locations()
+	for portal: Dictionary in modules.zombies.nearby_doors(_state.zombies,graph,_state.location):
+		var other: String = str(portal.other)
+		var door: Dictionary = portal.door
+		if bool(door.open):
+			out.append(_action("door_close:" + other,"Прикрыть дверь: " + str(graph[other].title),
+				25,"Закрыть физический проход; движение и звук изменятся.","Убежище",{"other":other}))
+		else:
+			out.append(_action("door_open:" + other,"Открыть дверь: " + str(graph[other].title),
+				25,"Открыть путь, если нет подпорки.","Убежище",{"other":other}))
+			out.append(_action("door_brace:" + other,"Подпереть дверь: " + str(graph[other].title),
+				90,"Израсходовать 1 кг древесины, увеличив усилие для разрушения.","Убежище",{"other":other}))
+			out.append(_action("door_unbrace:" + other,"Убрать подпорку: " + str(graph[other].title),
+				60,"Освободить проход, вернуть пригодную древесину.","Убежище",{"other":other}))
+
 	for target: String in graph[_state.location].connections:
 		var distance: float = graph[_state.location].connections[target]
 		var load_kg: float = modules.items.mass_kg(_state.items)
@@ -120,6 +136,8 @@ func _params(id: String, args: Dictionary) -> Dictionary:
 		params["part"] = id.substr(8)
 	elif id.begins_with("wash_wound:"):
 		params["part"] = id.substr(11)
+	elif id.begins_with("door_") and ":" in id:
+		params["other"] = id.split(":")[1]
 	elif ":" in id:
 		params["npc_id"] = id.split(":")[1]
 	return params
@@ -136,7 +154,34 @@ func _validate(id: String, arguments: Dictionary) -> String:
 	if not functional_block.is_empty(): return functional_block
 	match verb:
 		"move":
-			return "Нет прямого пути. Сначала выйдите во двор." if not modules.world.locations()[_state.location].connections.has(str(args.get("target",""))) else ""
+			var target: String = str(args.get("target",""))
+			if not modules.world.locations()[_state.location].connections.has(target):
+				return "Нет прямого пути. Сначала выйдите во двор."
+			if not modules.zombies.nav.is_open(_state.zombies.doors,_state.location,target):
+				return "Путь перекрыт закрытой дверью."
+			return ""
+		"door_open","door_close","door_brace","door_unbrace":
+			var other: String = str(args.get("other",""))
+			var graph: Dictionary = modules.world.locations()
+			if not graph[_state.location].connections.has(other):
+				return "Нет доступного прохода к этой двери."
+			var door: Dictionary = modules.zombies.nav.door_for(_state.zombies.doors,_state.location,other)
+			if door.is_empty(): return "Здесь нет двери."
+			if verb == "door_open":
+				if bool(door.open): return "Дверь уже открыта."
+				return "Сначала уберите подпорку." if float(door.brace_kg)>0.0 else ""
+			if verb == "door_close": return "Дверь уже закрыта." if not bool(door.open) else ""
+			if verb == "door_brace":
+				if bool(door.open): return "Нужно сначала закрыть дверь."
+				if float(door.brace_kg) >= 12.0: return "Дальше подпирать некуда."
+				return modules.items.validate(_state.items,{"kind":"remove_item","item":"wood","amount":1})
+			if float(door.brace_kg) <= 0.0: return "Подпорки нет."
+			return modules.items.validate(_state.items,{"kind":"add_item","item":"wood","amount":int(door.brace_kg)})
+		"shove","break_grapple":
+			var local: String = modules.zombies.availability(_state.zombies,{"kind":verb,"location":_state.location})
+			if local != "": return local
+			var body_caps: Dictionary = modules.physiology.capabilities(_state.body)
+			return "Руки не слушаются." if float(body_caps.grip) < 0.18 else ""
 		"inspect","listen","rest","wait": return ""
 		"retreat": return modules.zombies.availability(_state.zombies, {"kind":"retreat","location":_state.location})
 		"sleep":
@@ -285,19 +330,28 @@ func step(seconds: float) -> Dictionary:
 		for room_id: String in _state.environment.rooms:
 			if bool(_state.environment.rooms[room_id].burning):
 				modules.acoustics.emit(_state.acoustics, graph, room_id, "fire", 46.0, "stove_" + room_id)
-		var infected_events: Array = modules.zombies.advance(_state.zombies, float(dt),
-			{"player_location":_state.location, "graph":graph, "acoustics":_state.acoustics,
-			 "acoustic_model":modules.acoustics, "environment":_state.environment,
+		var acoustic_environment: Dictionary = _state.environment.duplicate(false)
+		acoustic_environment["doors"] = _state.zombies.doors
+		var infected_events: Array = modules.zombies.advance(_state.zombies,float(dt),
+			{"player_location":_state.location,"graph":graph,"acoustics":_state.acoustics,
+			 "acoustic_model":modules.acoustics,"environment":acoustic_environment,
+			 "player_light":_player_light(),"player_mobility":float(modules.physiology.capabilities(_state.body).mobility),
 			 "temperature_k":float(_state.environment.weather.temp_k)})
+		var tactile_contact: bool = false
 		for event: Dictionary in infected_events:
 			if event.get("type","") == "infected_contact":
-				_body("infected_contact", event)
+				_body("infected_contact",event)
+				tactile_contact = true
 		_append_events(infected_events)
 		_state.time_s += dt
 		action.elapsed_s += dt
 		remaining -= dt
 		_state.revision += 1
-		if not _state.body.alive or (not _state.body.conscious and verb != "wait"):
+		if tactile_contact and verb not in ["retreat","shove","break_grapple"]:
+			if verb in WORK_IDS: _state.work_progress[_work_key(action.id,action.start_location)] = int(action.elapsed_s)
+			_log("danger","Чьи-то руки резко цепляются за вас. Действие прервано; прошло реальное время.")
+			_state.action = {}
+		elif not _state.body.alive or (not _state.body.conscious and verb != "wait"):
 			_log("danger","Действие прервано: " + ("вы потеряли сознание." if _state.body.alive else "жизненные функции угасли."))
 			_state.action = {}
 		elif not modules.physiology.action_limit(_state.body, verb).is_empty():
@@ -319,9 +373,23 @@ func step(seconds: float) -> Dictionary:
 				_log("interrupted","Работа остановлена: " + reason + " Потраченное время сохраняется.")
 	return _result(true)
 
+func _player_light() -> float:
+	# Same reduced-order illumination as the public perception model.
+	# Passing brightness is NOT passing a secret target: AI must still
+	# share a location and pass a distance check to see anyone.
+	var hour: float = fmod(16.0+20.0/60.0+float(_state.time_s)/3600.0,24.0)
+	var light: float = maxf(0.0,sin(PI*(hour-6.0)/12.0))
+	light *= 1.0-clampf(float(_state.environment.weather.rain),0.0,1.0)*0.3
+	var room: Dictionary = _state.environment.rooms.get(_state.location,{})
+	if not room.is_empty():
+		light *= 0.35 if bool(room.window_open) else 0.25
+		if bool(room.burning): light += 0.37
+	if bool(_state.items.electricity.lamp_on): light += 0.63
+	return clampf(light,0.0,1.0)
+
 func _action_sound_kind(verb: String) -> String:
 	match verb:
-		"move", "retreat": return "footsteps"
+		"move", "retreat", "shove", "break_grapple": return "footsteps"
 		"gather_wood", "repair_cart", "clean_chimney", "repair_radio": return "work"
 		"hunt": return "impact"
 		"switch_radio": return "radio"
@@ -340,7 +408,8 @@ func _action_noise_db(verb: String) -> float:
 		"gather_wood", "clean_chimney", "repair_cart": return 76.0
 		"hunt": return 85.0
 		"switch_radio": return 62.0
-		"retreat": return 58.0
+		"retreat", "shove", "break_grapple": return 58.0
+		"door_open", "door_close", "door_brace", "door_unbrace": return 64.0
 	return 48.0
 
 func _append_events(events: Array) -> void:
@@ -355,6 +424,11 @@ func _append_events(events: Array) -> void:
 			modules.acoustics.emit(_state.acoustics, modules.world.locations(), event_location,
 				"footsteps" if event_type == "npc_arrival" else "water",
 				57.0 if event_type == "npc_arrival" else 54.0, "npc")
+			continue
+		if event_type in ["infected_door_hit","infected_door_breach","infected_fall"]:
+			modules.acoustics.emit(_state.acoustics,modules.world.locations(),event_location,
+				"impact",98.0 if event_type == "infected_door_breach" else (85.0 if event_type == "infected_door_hit" else 79.0),
+				"world_collision",float(event.get("offset_m",0.0)))
 			continue
 		# Heard approach is rendered from actual acoustic propagation, not a raw
 		# simulation event which would disclose a silent/unseen infected.
@@ -401,9 +475,27 @@ func _complete(action: Dictionary) -> void:
 				modules.world.locations(), _state.environment, 23.0 + hearing_penalty, 8.0)
 			_log("observation", "Вы прислушиваетесь. " + (str(heard[0].text) if not heard.is_empty() else "Различить определённый источник звука не удаётся."))
 
-		"retreat":
-			modules.zombies.apply(_state.zombies, {"kind":"retreat","location":_state.location})
-			_log("action", "Вы с усилием разрываете дистанцию. Заражённый всё ещё где-то рядом.")
+		"retreat","shove","break_grapple":
+			var caps: Dictionary = modules.physiology.capabilities(_state.body)
+			var effort: float = clampf((float(caps.grip)+float(caps.mobility))*0.55,0.0,1.0)
+			var outcome: Dictionary = modules.zombies.apply(_state.zombies,{"kind":verb,
+				"location":_state.location,"effort":effort})
+			if not outcome.get("ok",false):
+				_log("danger",str(outcome.get("reason","Не удалось освободиться.")))
+			else:
+				_log("action","Удаётся оттолкнуть фигуру и получить немного пространства." if verb == "shove"
+					else "Вырываетесь из хватки." if verb == "break_grapple" else "Вы отступаете, разрывая дистанцию.")
+		"door_open","door_close","door_brace","door_unbrace":
+			var other: String = str(params.get("other",""))
+			var step_kind: String = verb.substr(5)
+			var outcome: Dictionary = modules.zombies.door_action(_state.zombies,
+				modules.world.locations(),_state.location,other,step_kind,1.0 if verb == "door_brace" else 0.0)
+			if outcome.get("ok",false):
+				if verb == "door_brace": _consume("wood",1)
+				elif verb == "door_unbrace": _item("add_item",{"item":"wood","amount":int(outcome.get("recovered_kg",0.0))})
+				_log("action","Дверь и проход физически изменили состояние.")
+			else:
+				_log("interrupted",str(outcome.get("reason","Дверь не поддалась.")))
 		"inspect":
 			_state.knowledge[_state.location] = {"seen_at":_state.time_s}
 			_log("observation","Вы внимательно осматриваете место, прислушиваетесь и запоминаете детали.")
@@ -475,6 +567,8 @@ func _emit_completion_sound(verb: String) -> void:
 	var sound: Dictionary = {}
 	match verb:
 		"ventilate": sound = {"kind":"metal", "db":66.0}
+		"door_open", "door_close", "door_brace", "door_unbrace": sound = {"kind":"metal","db":71.0}
+		"shove", "break_grapple": sound = {"kind":"impact","db":77.0}
 		"add_fuel": sound = {"kind":"impact", "db":68.0}
 		"light_fire": sound = {"kind":"fire", "db":51.0}
 		"clean_chimney", "repair_radio": sound = {"kind":"metal", "db":74.0}
@@ -502,6 +596,8 @@ func restore_state(data: Dictionary) -> Dictionary:
 		# Use a String key on insertion: the save validator rejects non-String keys.
 		upgraded["zombies"] = modules.zombies.initial_state(int(upgraded.seed))
 		upgraded["zombies"]["time_s"] = float(upgraded.get("time_s",0))
+	if upgraded.has("zombies") and upgraded.zombies is Dictionary and int(upgraded.zombies.get("schema_version",0)) == 1:
+		upgraded["zombies"] = modules.zombies.migrate_state(upgraded.zombies)
 	if not upgraded.has("acoustics") and upgraded.has("time_s"):
 		upgraded["acoustics"] = modules.acoustics.initial_state()
 		upgraded["acoustics"]["time_s"] = float(upgraded.get("time_s", 0))
@@ -593,7 +689,7 @@ func _work_key(id: String, location: String) -> String:
 	return id + "@" + ("player" if id == "craft_bandage" else location)
 
 func _duration(id: String) -> int:
-	return int({"inspect":60,"listen":20,"retreat":30,"clean_chimney":600,"add_fuel":60,"light_fire":180,"extinguish":60,"ventilate":30,"seal_window":900,"boil_water":1200,"cook":900,"dry_clothes":1800,"fill_water":180,"gather_wood":1200,"hunt":3600,"plant":1200,"water_garden":180,"harvest":1200,"talk":300,"share_food":120,"trade":300,"help_nina":600,"drink":30,"eat":300,"craft_bandage":300,"bandage":180,"wash_wound":120,"rest":1800,"sleep":7200,"wait":600,"repair_radio":1500,"switch_radio":30,"switch_lamp":30,"repair_cart":1800}.get(id,0))
+	return int({"inspect":60,"listen":20,"retreat":30,"shove":18,"break_grapple":12,"door_open":25,"door_close":25,"door_brace":90,"door_unbrace":60,"clean_chimney":600,"add_fuel":60,"light_fire":180,"extinguish":60,"ventilate":30,"seal_window":900,"boil_water":1200,"cook":900,"dry_clothes":1800,"fill_water":180,"gather_wood":1200,"hunt":3600,"plant":1200,"water_garden":180,"harvest":1200,"talk":300,"share_food":120,"trade":300,"help_nina":600,"drink":30,"eat":300,"craft_bandage":300,"bandage":180,"wash_wound":120,"rest":1800,"sleep":7200,"wait":600,"repair_radio":1500,"switch_radio":30,"switch_lamp":30,"repair_cart":1800}.get(id,0))
 
 func _validate_saved_action(action: Dictionary, location: String, graph: Dictionary) -> String:
 	for key: String in ["id","title","elapsed_s","duration_s","parameters","start_location"]:
@@ -610,7 +706,11 @@ func _validate_saved_action(action: Dictionary, location: String, graph: Diction
 		var base: int = int(action.base_duration_s)
 		if base <= 0 or (verb != "move" and base != _duration(verb)) or int(action.duration_s) != maxi(base, ceili(float(base) / factor)):
 			return "Длительность действия не соответствует сохранённым возможностям тела."
-	if verb == "move":
+	if verb.begins_with("door_"):
+		var other: String = str(action.parameters.get("other",""))
+		if action.id != verb + ":" + other or not graph[location].connections.has(other):
+			return "Несуществующий проход в сохранении."
+	elif verb == "move":
 		var target: String = str(action.parameters.get("target",""))
 		if action.id != "move:" + target or not graph[location].connections.has(target): return "Недопустимый путь действия."
 	elif verb in ["talk","trade","share_food"]:
