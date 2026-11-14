@@ -428,7 +428,7 @@ func _append_events(events: Array) -> void:
 		if event_type in ["infected_door_hit","infected_door_breach","infected_fall"]:
 			modules.acoustics.emit(_state.acoustics,modules.world.locations(),event_location,
 				"impact",98.0 if event_type == "infected_door_breach" else (85.0 if event_type == "infected_door_hit" else 79.0),
-				"world_collision",float(event.get("offset_m",0.0)))
+				str(event.get("actor_id","world_collision")),float(event.get("offset_m",0.0)))
 			continue
 		# Heard approach is rendered from actual acoustic propagation, not a raw
 		# simulation event which would disclose a silent/unseen infected.

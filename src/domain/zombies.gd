@@ -250,7 +250,7 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 		a.obstacle_delay_m = float(obstacle.detour_m)
 		if roll < risk:
 			_fall(a,float(weather.get("rain",0.0)))
-			events.append({"type":"infected_fall","location":str(a.location),
+			events.append({"type":"infected_fall","actor_id":id,"location":str(a.location),
 				"offset_m":float(a.distance_m),"text":"Раздаётся тяжёлый удар о землю."})
 			return
 		events.append({"type":"infected_detour","location":str(a.location),
@@ -274,7 +274,7 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 			var strike: Dictionary = nav.strike(state.doors,str(a.location),destination,impact)
 			a.impact_cooldown_s = 20.0
 			events.append({"type":"infected_door_breach" if strike.get("breached",false) else "infected_door_hit",
-				"location":str(a.location),"offset_m":0.0, "other":destination, "impact_j":impact})
+				"actor_id":id,"location":str(a.location),"offset_m":0.0, "other":destination, "impact_j":impact})
 		return
 	# A genuine door or graph edge is traversed only after reaching its side.
 	var old_location: String = str(a.location)
