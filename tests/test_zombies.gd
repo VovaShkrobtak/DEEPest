@@ -38,7 +38,8 @@ func _initialize() -> void:
 	var k = Kernel.new(1998)
 	var legacy: Dictionary = k.export_state()
 	legacy.erase("zombies")
-	check(k.restore_state(legacy).ok, "legacy first-night save gains infected population")
+	var migration: Dictionary = k.restore_state(legacy)
+	check(migration.ok, "legacy first-night save gains infected population: " + str(migration.get("message","")))
 	check(k.debug_snapshot().zombies.agents.size() == 3, "migration retains infected entities")
 	var fixture: Dictionary = k.export_state()
 	fixture.zombies.agents.infected_01.location = fixture.location
