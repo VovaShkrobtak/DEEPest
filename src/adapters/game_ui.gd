@@ -40,6 +40,7 @@ var layout: HBoxContainer
 var main_scroll: ScrollContainer
 var command_input: LineEdit
 var clock_label: Label
+var brand_label: Label
 var notice: Label
 var running_progress: ProgressBar
 var running_text: Label
@@ -117,16 +118,17 @@ func _build_shell() -> void:
 
 	var masthead := HBoxContainer.new()
 	root_column.add_child(masthead)
-	var brand := _label("DEEPest", 27, INK)
+	brand_label = _label("DEEPest", 27, INK)
+	var brand: Label = brand_label
 	brand.add_theme_font_override("font", load("res://assets/fonts/OpenSans-Semibold.ttf"))
 	masthead.add_child(brand)
 	nav_toggle = _button("≡ Разделы", _toggle_navigation)
 	nav_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
-	nav_toggle.custom_minimum_size.x = 90
+	nav_toggle.custom_minimum_size.x = 48
 	masthead.add_child(nav_toggle)
 	status_toggle = _button("Состояние", _toggle_status)
 	status_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
-	status_toggle.custom_minimum_size.x = 92
+	status_toggle.custom_minimum_size.x = 48
 	masthead.add_child(status_toggle)
 	clock_label = _label("", 12, AMBER)
 	clock_label.size_flags_horizontal = Control.SIZE_SHRINK_END
@@ -238,13 +240,13 @@ func _rebuild_content() -> void:
 	_clear(navigation)
 	_clear(mobile_status)
 	_clear(mobile_nav)
-	mobile = size.x < 980 or text_scale > 1.4
+	mobile = size.x < 980 or get_window().size.x < 980 or OS.get_name() == "Android" or text_scale > 1.4
 	view = presentation.build(snapshot, kernel.available_actions())
 	for tab in TABS:
 		var tab_button := _button(("●  " if tab == selected_tab else "") + tab, _select_tab.bind(tab))
 		if tab == selected_tab: tab_button.add_theme_color_override("font_color", AMBER)
 		navigation.add_child(tab_button)
-	clock_label.text = "%s\n%s" % [snapshot.get("time_label", "08:00"), snapshot.get("date_label", "14 ноября 1998")]
+	clock_label.text = str(snapshot.get("time_label", "08:00")) if mobile else "%s\n%s" % [snapshot.get("time_label", "08:00"), snapshot.get("date_label", "14 ноября 1998")]
 	notice.text = message
 	notice.max_lines_visible = 2
 	_build_mobile_status()
@@ -395,7 +397,7 @@ func _running_action() -> void:
 	progress.show_percentage = false
 	progress.custom_minimum_size.y = 5
 	box.add_child(progress)
-	running_text = _label("Прошло %s / %s" % [_duration(float(action.get("elapsed_s", 0))), _duration(progress.max_value)], 12, MUTED)
+	running_text = _label("Время проходит. Работу можно прервать; затраты и изменения останутся.", 12, MUTED)
 	box.add_child(running_text)
 	box.add_child(_button("Прервать действие", _cancel))
 
@@ -522,11 +524,11 @@ func _advance() -> void:
 		_refresh()
 		return
 	# Keep controls stable while fingers are down; update only the running indicators.
-	clock_label.text = "%s\n%s" % [snapshot.get("time_label", ""), snapshot.get("date_label", "")]
+	clock_label.text = str(snapshot.get("time_label", "")) if mobile else "%s\n%s" % [snapshot.get("time_label", ""), snapshot.get("date_label", "")]
 	if is_instance_valid(running_progress):
 		running_progress.value = float(snapshot.action.get("elapsed_s", 0))
 	if is_instance_valid(running_text):
-		running_text.text = "Прошло %s / %s" % [_duration(float(snapshot.action.get("elapsed_s", 0))), _duration(float(snapshot.action.get("duration_s", 0)))]
+		running_text.text = "Время проходит. Работу можно прервать; затраты и изменения останутся."
 	notice.text = message
 
 func _cancel() -> void:
@@ -629,7 +631,8 @@ func _update_design_scale() -> void:
 	# otherwise become a 1280x2700 canvas and shrink touch controls to unreadability.
 	var window: Window = get_window()
 	var portrait: bool = window.size.y > window.size.x
-	var desired: Vector2i = Vector2i(420, 900) if portrait else Vector2i(1280, 720)
+	var compact_landscape: bool = OS.get_name() == "Android" or window.size.x < 1100
+	var desired: Vector2i = Vector2i(420, 900) if portrait else (Vector2i(960, 540) if compact_landscape else Vector2i(1280, 720))
 	if window.content_scale_size != desired:
 		window.content_scale_size = desired
 
@@ -637,7 +640,7 @@ func _update_design_scale() -> void:
 func _responsive() -> void:
 	_update_design_scale()
 	if not is_instance_valid(navigation) or rebuilding: return
-	var should_mobile: bool = size.x < 980 or text_scale > 1.4
+	var should_mobile: bool = size.x < 980 or get_window().size.x < 980 or OS.get_name() == "Android" or text_scale > 1.4
 	if should_mobile != mobile:
 		rebuilding = true
 		mobile = should_mobile
@@ -650,8 +653,9 @@ func _responsive() -> void:
 	mobile_selector.visible = mobile and mobile_menu_open
 	if mobile_selector.visible:
 		mobile_selector.select(TABS.find(selected_tab))
-	nav_toggle.text = "≡ Разделы" if mobile or navigation_collapsed else "◀ Разделы"
-	status_toggle.text = "◉ Состояние" if status_collapsed else "◌ Скрыть"
+	brand_label.add_theme_font_size_override("font_size", int((18 if mobile else 27) * text_scale))
+	nav_toggle.text = "≡" if mobile else ("≡ Разделы" if navigation_collapsed else "◀ Разделы")
+	status_toggle.text = ("◉" if status_collapsed else "◌") if mobile else ("◉ Состояние" if status_collapsed else "◌ Скрыть")
 
 
 func _terminal_banner() -> void:

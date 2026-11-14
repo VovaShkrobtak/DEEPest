@@ -27,6 +27,8 @@ func build(snapshot: Dictionary, catalog: Array) -> Dictionary:
 	var people_visible: bool = not snapshot.get("people", []).is_empty()
 	for descriptor: Dictionary in catalog:
 		var id: String = str(descriptor.get("id", ""))
+		if not bool(descriptor.get("enabled", false)):
+			continue
 		var category: String = str(descriptor.get("category", ""))
 		# Disabled retreat buttons disclose proximity even when the player cannot perceive a threat.
 		if id == "retreat" and not alert:
