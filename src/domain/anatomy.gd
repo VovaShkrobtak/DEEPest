@@ -24,6 +24,8 @@ func initial_state(with_start_wound: bool = true) -> Dictionary:
 		injure(state, {"part":"left_arm", "wound_m2":0.0003,
 			"bleeding_kg_s":0.000002, "contamination":0.03,
 			"tissue_damage":{"skin":0.025}})
+		state.adrenaline = 0.0 # Old injury predates the starting moment.
+		_refresh_pain(state)
 	return state
 
 func injure(state: Dictionary, effect: Dictionary) -> bool:
