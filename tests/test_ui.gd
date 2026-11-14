@@ -32,6 +32,17 @@ func _run() -> void:
 	await process_frame
 	_check(not scene.side.visible, "Desktop sensory sidebar independently collapses")
 	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "Collapsing panels never mutates simulation")
+	scene._set_contrast(true)
+	var accessibility_settings := ConfigFile.new()
+	_check(accessibility_settings.load(scene.settings_path) == OK and bool(accessibility_settings.get_value("interface", "high_contrast", false)), "Contrast preference persists")
+	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "Accessibility toggles do not affect the world")
+	scene._set_contrast(false)
+	scene.ui_sound_enabled = true
+	scene._play_ui_click()
+	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "UI click audio never advances world time")
+	scene.ui_sound_enabled = false
+	scene._save_settings()
+
 	scene._toggle_navigation()
 	scene._toggle_status()
 	await process_frame
