@@ -66,9 +66,10 @@ func _initialize() -> void:
 		"Contact with obstacle accumulates physical impact")
 	var before_damage: float = float(blocked.doors["shelter|yard"].damage_j)
 	check(before_damage > 0.0, "Door retains energy damage across ticks")
-	z.advance(blocked,250.0,facing)
+	var after_barrier_events: Array = z.advance(blocked,250.0,facing)
 	check(z.nav.is_open(blocked.doors,"yard","shelter"), "Repeated real impacts breach finite door")
-	check(traveler.location == "shelter", "Passage traversed only after physically breaching door")
+	check(after_barrier_events.any(func(e: Dictionary): return str(e.get("type","")) == "infected_traverse" and str(e.get("location","")) == "shelter"),
+		"Passage traversed only after physically breaching door (event persists even if search moves on)")
 
 	var stumble: Dictionary = base.duplicate(true)
 	stumble.agents.infected_01.location = "yard"
