@@ -60,8 +60,10 @@ func _initialize() -> void:
 	check(not bool(after_dressing.body.anatomy.parts.left_arm.wounds[0].bandaged), "Old left-arm wound stays undressed")
 	check(after_dressing.body.anatomy.parts.right_leg.tissues.skin < 1.0, "Bandage does not restore torn skin")
 	check(int(after_dressing.items.inventory.bandage) == 1, "One actual bandage consumed")
+	check(treated._finite_tree(after_dressing), "Post-bandage state serializes: " + _find_bad_value(after_dressing))
 	var water: Dictionary = after_dressing.duplicate(true)
 	water["items"]["water"]["boil_exposure_s"] = 60.0
+	check(treated._finite_tree(water), "Prepared water state serializes: " + _find_bad_value(water))
 	var water_restore: Dictionary = treated.restore_state(water)
 	check(water_restore.ok, "Clean-water setup restored: " + str(water_restore.get("message", "")))
 	var initial_contamination: float = float(water.body.anatomy.parts.right_leg.wounds[0].contamination)
@@ -111,3 +113,22 @@ func _duration(kernel: RefCounted, id: String) -> int:
 	return -1
 func check(ok: bool, label: String) -> void:
 	if not ok: failures.append(label)
+
+func _find_bad_value(value: Variant, path: String = "root", depth: int = 0) -> String:
+	if depth > 64: return path + " depth>64"
+	if value is float and not is_finite(value): return path + " nonfinite"
+	if value is Dictionary:
+		for key: Variant in value:
+			if not key is String:
+				return path + " key=" + str(key) + " keytype=" + type_string(typeof(key))
+			var nested: String = _find_bad_value(value[key], path + "/" + str(key), depth+1)
+			if not nested.is_empty(): return nested
+		return ""
+	if value is Array:
+		for index in range(value.size()):
+			var nested: String = _find_bad_value(value[index], path + "/" + str(index), depth+1)
+			if not nested.is_empty(): return nested
+		return ""
+	if value == null or value is String or value is int or value is float or value is bool:
+		return ""
+	return path + " type=" + type_string(typeof(value))
