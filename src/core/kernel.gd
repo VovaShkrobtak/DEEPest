@@ -596,7 +596,7 @@ func restore_state(data: Dictionary) -> Dictionary:
 		# Use a String key on insertion: the save validator rejects non-String keys.
 		upgraded["zombies"] = modules.zombies.initial_state(int(upgraded.seed))
 		upgraded["zombies"]["time_s"] = float(upgraded.get("time_s",0))
-	if upgraded.has("zombies") and upgraded.zombies is Dictionary and int(upgraded.zombies.get("schema_version",0)) == 1:
+	if upgraded.has("zombies") and upgraded.zombies is Dictionary and int(upgraded.zombies.get("schema_version",0)) in [1,2]:
 		upgraded["zombies"] = modules.zombies.migrate_state(upgraded.zombies)
 	if not upgraded.has("acoustics") and upgraded.has("time_s"):
 		upgraded["acoustics"] = modules.acoustics.initial_state()

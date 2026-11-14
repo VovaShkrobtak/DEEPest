@@ -50,6 +50,10 @@ func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictio
 			var agent: Dictionary = state.zombies.agents[id]
 			if str(agent.get("location", "")) != location: continue
 			if float(agent.get("distance_m", INF)) > visibility_m: continue
+			var living: bool = bool(agent.get("alive",true))
+			if not living:
+				visible.append({"title":"Неподвижное тело","text":"На земле лежит тело. По одному взгляду нельзя определить причину неподвижности."})
+				break
 			var posture: String = str(agent.get("posture","upright"))
 			var title: String = "Силуэт на земле" if posture in ["fallen","crawling"] else "Движущаяся фигура"
 			var detail: String = "Кто-то упал и шевелится на земле. Личность неизвестна." if posture == "fallen" else ("Фигура медленно ползёт по земле." if posture == "crawling" else "В поле зрения неровно движущийся силуэт. Его состояние определить невозможно.")

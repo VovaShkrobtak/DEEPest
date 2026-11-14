@@ -5,7 +5,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 # Explicitly declared same-model NPC reuse; all other sibling imports fail.
-DOMAIN_IMPORT_ALLOWLIST = {("world.gd", "physiology.gd"), ("physiology.gd", "anatomy.gd"), ("zombies.gd", "infected_navigation.gd")}
+DOMAIN_IMPORT_ALLOWLIST = {("world.gd", "physiology.gd"), ("physiology.gd", "anatomy.gd"), ("zombies.gd", "infected_navigation.gd"), ("zombies.gd", "anatomy.gd")}
 BANNED = re.compile(r"\b(?:Node\w*|SceneTree|OS|FileAccess|DirAccess|Time)\b|(?<![.\w])(?:randf|randfn|randi|randf_range|randi_range|randomize|seed|rand_from_seed)\s*\(")
 IMPORT = re.compile(r'\b(?:preload|load)\s*\(\s*[\"\']([^\"\']+)[\"\']\s*\)')
 

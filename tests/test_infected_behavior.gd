@@ -113,7 +113,7 @@ func _initialize() -> void:
 				"leg_integrity","tissue_integrity","hearing_threshold_db","close_reported"]:
 				legacy.agents[id].erase(key)
 	var migrated: Dictionary = z.migrate_state(legacy)
-	check(migrated.schema_version == 2 and z.validate_state(migrated,graph).is_empty(),
+	check(migrated.schema_version == 3 and z.validate_state(migrated,graph).is_empty(),
 		"Old agent identity and positions migrate to new behavior schema")
 	var corrupt: Dictionary = migrated.duplicate(true)
 	corrupt.agents.infected_01.posture = "flying"
