@@ -17,7 +17,7 @@ func _run() -> void:
 		await process_frame
 		_check(scene.main_scroll.size.x > 200, "Reading column has usable width")
 		_check(scene.main_scroll.size.y > 150, "Reading column has usable height")
-		_check(scene.command_input.get_global_rect().end.y <= root.get_visible_rect().size.y + 1, "Command stays inside viewport %s: bottom=%.1f visible=%.1f root=%.1f layout=%.1f" % [dimensions, scene.command_input.get_global_rect().end.y, root.get_visible_rect().size.y, scene.root_column.size.y, scene.layout.size.y])
+		_check(scene.command_input.get_global_rect().end.y <= root.get_visible_rect().size.y + 1, "Command stays inside viewport %s: bottom=%.1f visible=%.1f root=%.1f layout=%.1f mobile=%s side=%s navbar=%s footer=%s chooser=%s status=%s window=%s" % [dimensions, scene.command_input.get_global_rect().end.y, root.get_visible_rect().size.y, scene.root_column.size.y, scene.layout.size.y, scene.mobile, scene.side.visible, scene.navigation.visible, scene.mobile_nav.visible, scene.mobile_selector.visible, scene.mobile_status.visible, root.size])
 		_check(scene.page.size.x <= scene.main_scroll.size.x + 1, "Content has no horizontal overflow")
 		_check(scene.navigation.visible == (dimensions.x >= 980), "Navigation adapts to viewport")
 	for tab in scene.TABS:
