@@ -52,7 +52,7 @@ func _initialize() -> void:
 		"contamination":0.6, "tissue_damage":{"skin":0.08}})
 	check(treated.restore_state(wounds).ok, "Additional local wound can be saved")
 	check(treated.command("bandage:right_leg").ok, "Player can target injured right leg")
-	check(treated.step(180).ok, "Targeted field dressing finishes")
+	check(treated.step(int(treated.export_state().action.duration_s)).ok, "Targeted field dressing finishes")
 	var after_dressing: Dictionary = treated.export_state()
 	check(bool(after_dressing.body.anatomy.parts.right_leg.wounds[0].bandaged), "Right leg wound receives bandage")
 	check(not bool(after_dressing.body.anatomy.parts.left_arm.wounds[0].bandaged), "Old left-arm wound stays undressed")
@@ -64,7 +64,7 @@ func _initialize() -> void:
 	var initial_contamination: float = float(water.body.anatomy.parts.right_leg.wounds[0].contamination)
 	var left_contamination: float = float(water.body.anatomy.parts.left_arm.wounds[0].contamination)
 	check(treated.command("wash_wound:right_leg").ok, "Can wash selected wound")
-	check(treated.step(120).ok, "Washing is a real-time action")
+	check(treated.step(int(treated.export_state().action.duration_s)).ok, "Washing is a real-time action")
 	var washed: Dictionary = treated.export_state()
 	check(float(washed.body.anatomy.parts.right_leg.wounds[0].contamination) < initial_contamination,
 		"Only targeted surface contamination decreases")

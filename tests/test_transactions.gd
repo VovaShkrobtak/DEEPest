@@ -43,7 +43,7 @@ func _initialize() -> void:
 	saving.step(360)
 	loaded.step(360)
 	check(equivalent(saving.export_state(),loaded.export_state()),"Restored work completes exactly once within numeric tolerance")
-	check(loaded.export_state().environment.rooms.shelter.chimney_clean,"Restored physical work applied")
+	check(loaded.export_state().environment.rooms.shelter.chimney_clean,"Restored physical work applied: " + JSON.stringify({"duration":saving.export_state().get("action",{}),"loaded_action":loaded.export_state().action,"progress":loaded.export_state().work_progress,"journal_tail":loaded.export_state().journal.slice(-5),"fatigue":loaded.export_state().body.fatigue,"pain":loaded.export_state().body.anatomy.pain_raw}))
 	print("Transaction checks failures=",failures)
 	quit(1 if failures else 0)
 

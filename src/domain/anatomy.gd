@@ -84,7 +84,7 @@ func treat(state: Dictionary, kind: String, preferred: String = "") -> bool:
 			if kind == "wash" and float(wound.contamination) > 0.0:
 				candidate = wound
 				break
-	if candidate.is_empty():
+	if candidate.is_empty() and preferred.is_empty():
 		var best: float = -1.0
 		for part: String in PARTS:
 			for wound: Dictionary in state.parts[part].wounds:
