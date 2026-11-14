@@ -140,7 +140,7 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 		var number: Variant = event.get("sequence")
 		if not (number is int or number is float) or not _whole(number) or int(number) < 1 or int(number) > int(state.sequence) or seen.has(number): return "Повреждён номер звукового события."
 		seen[number] = true
-		if not graph.has(str(event.get("location", ""))) or not str(event.get("kind", "")) in SOUND_TYPES or not event.get("owner") is String or str(event.owner).length() > 64:
+		if not graph.has(str(event.get("location", ""))) or not str(event.get("kind", "")) in SOUND_TYPES or not event.get("owner") is String or str(event.owner).is_empty() or str(event.owner).length() > 64:
 			return "Неизвестный источник звука."
 		if float(event.time_s) > float(state.time_s) or float(state.time_s) - float(event.time_s) > MAX_AGE_S + 0.01:
 			return "Невозможное время звукового события."

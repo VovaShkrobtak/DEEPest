@@ -1,5 +1,6 @@
 extends SceneTree
 const Sound = preload("res://src/domain/acoustics.gd")
+const Kernel = preload("res://src/core/kernel.gd")
 const World = preload("res://src/domain/world.gd")
 const Env = preload("res://src/domain/environment.gd")
 var failures: Array[String] = []
@@ -41,6 +42,22 @@ func _initialize() -> void:
 	check(not model.validate_state(invalid, graph).is_empty(), "Forged acoustic amplitude rejected")
 	model.advance(state, 45.0)
 	check(state.events.is_empty(), "Old acoustic events expire deterministically")
+
+	var old_kernel = Kernel.new(1998)
+	var legacy_save: Dictionary = old_kernel.export_state()
+	legacy_save.erase("acoustics")
+	check(old_kernel.restore_state(legacy_save).ok, "Old save gains an acoustic clock without breaking the world")
+	check(old_kernel.export_state().acoustics.time_s == float(old_kernel.export_state().time_s), "Legacy sound clock starts aligned to simulation")
+	var forged_kernel = Kernel.new(1998)
+	var corrupted: Dictionary = forged_kernel.export_state()
+	corrupted.acoustics.events.append({"sequence":1,"time_s":0.0,"location":"yard",
+		"kind":"metal","level_db":100.0,"offset_m":0.0,"owner":"unknown"})
+	corrupted.acoustics.sequence = 1
+	check(forged_kernel.restore_state(corrupted).ok, "Physically valid explicit external sound fixture accepted")
+	var hostile: Dictionary = corrupted.duplicate(true)
+	hostile.acoustics.events[0].location = "missing_region"
+	check(not forged_kernel.restore_state(hostile).ok, "Unknown sound source locations cannot enter saves")
+	check(forged_kernel.export_state() == corrupted, "Rejected sound forgery does not mutate live world")
 	print("Acoustic model: ", "PASS" if failures.is_empty() else JSON.stringify(failures))
 	quit(0 if failures.is_empty() else 1)
 func check(result: bool, description: String) -> void:
