@@ -228,6 +228,7 @@ func step(seconds: float) -> Dictionary:
 		var action: Dictionary = _state.action
 		var dt: int = mini(10,mini(remaining,int(action.duration_s) - int(action.elapsed_s)))
 		var verb: String = _base(action.id)
+		modules.acoustics.advance(_state.acoustics, float(dt))
 		var air: Dictionary = modules.environment.conditions(_state.environment,_state.location)
 		_append_events(modules.environment.advance(_state.environment,dt,{"heating_water":verb == "boil_water" and _state.items.water.volume_kg > 0.0,"location":_state.location}))
 		air = modules.environment.conditions(_state.environment,_state.location)
@@ -245,7 +246,6 @@ func step(seconds: float) -> Dictionary:
 
 		# Sound sources are physical world events, not a shared enemy-alert flag.
 		# The acoustic clock runs in the same fixed-step transaction as the world.
-		modules.acoustics.advance(_state.acoustics, float(dt))
 		var graph: Dictionary = modules.world.locations()
 		var noise_db: float = _action_noise_db(verb)
 		if noise_db > 0.0:
@@ -312,6 +312,16 @@ func _action_noise_db(verb: String) -> float:
 func _append_events(events: Array) -> void:
 	for event: Dictionary in events:
 		_trace(str(event.get("type","event")),event)
+
+		var event_type: String = str(event.get("type",""))
+		var event_location: String = str(event.get("location", ""))
+		# Actual NPC activity becomes a spatial sound stimulus. Its identity
+		# stays in developer trace, not in the player's sensory journal.
+		if event_type in ["npc_arrival", "npc_water"] and modules.world.locations().has(event_location):
+			modules.acoustics.emit(_state.acoustics, modules.world.locations(), event_location,
+				"footsteps" if event_type == "npc_arrival" else "water",
+				57.0 if event_type == "npc_arrival" else 54.0, "npc")
+			continue
 		# Heard approach is rendered from actual acoustic propagation, not a raw
 		# simulation event which would disclose a silent/unseen infected.
 		if str(event.get("type","")) == "infected_approach": continue
@@ -423,6 +433,24 @@ func _complete(action: Dictionary) -> void:
 			modules.world.apply(_state.world,{"kind":verb})
 			_item("add_item",{"item":"potato","amount":10})
 	_body("practice",{"skill":verb})
+	_emit_completion_sound(verb)
+
+func _emit_completion_sound(verb: String) -> void:
+	# Short impacts when a physical operation actually completes, independent
+	# of the quieter repeated sounds produced during its execution.
+	var sound: Dictionary = {}
+	match verb:
+		"ventilate": sound = {"kind":"metal", "db":66.0}
+		"add_fuel": sound = {"kind":"impact", "db":68.0}
+		"light_fire": sound = {"kind":"fire", "db":51.0}
+		"clean_chimney", "repair_radio": sound = {"kind":"metal", "db":74.0}
+		"repair_cart": sound = {"kind":"metal", "db":79.0}
+		"fill_water": sound = {"kind":"water", "db":56.0}
+		"switch_radio": sound = {"kind":"radio", "db":64.0}
+		"move": sound = {"kind":"footsteps", "db":58.0}
+	if not sound.is_empty():
+		modules.acoustics.emit(_state.acoustics, modules.world.locations(), _state.location,
+			str(sound.kind), float(sound.db), "player")
 
 func snapshot() -> Dictionary:
 	var Observer: Script = load("res://src/application/observer.gd")

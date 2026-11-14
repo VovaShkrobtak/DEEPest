@@ -53,14 +53,17 @@ func path_distance_m(graph: Dictionary, source: String, destination: String) -> 
 				distances[adjacent] = proposed
 	return INF
 
-func transmission_loss_db(source: String, listener: String, environment: Dictionary) -> float:
+func transmission_loss_db(source: String, listener: String, environment: Dictionary, kind: String = "environment") -> float:
 	if source == listener: return 0.0
 	var rooms: Dictionary = environment.get("rooms", {})
 	var loss: float = 0.0
 	for endpoint: String in [source, listener]:
 		if rooms.has(endpoint):
 			var room: Dictionary = rooms[endpoint]
-			loss += 4.0 if bool(room.get("window_open", false)) else (25.0 if bool(room.get("sealed", false)) else 17.0)
+			# Simplified frequency/material response: higher-frequency steps/voice
+			# are more attenuated by a closed partition than low impacts.
+			var closed_loss: float = 21.0 if kind in ["footsteps", "shuffling", "voice", "breathing"] else (14.0 if kind in ["impact", "metal"] else 17.0)
+			loss += 4.0 if bool(room.get("window_open", false)) else (25.0 if bool(room.get("sealed", false)) else closed_loss)
 	return loss
 
 func background_db(location: String, environment: Dictionary) -> float:
@@ -80,14 +83,15 @@ func received_db(event: Dictionary, listener_location: String, listener_offset_m
 	if is_inf(path) or not is_finite(listener_offset_m): return -1000.0
 	var separation: float = maxf(1.0, path + maxf(0.0, float(event.get("offset_m", 0.0))) + maxf(0.0, listener_offset_m))
 	var spread_db: float = 20.0 * log(separation) / log(10.0)
-	return float(event.get("level_db", 0.0)) - spread_db - separation * AIR_ABSORPTION_DB_M - transmission_loss_db(source, listener_location, environment)
+	return float(event.get("level_db", 0.0)) - spread_db - separation * AIR_ABSORPTION_DB_M - transmission_loss_db(source, listener_location, environment, str(event.get("kind", "environment")))
 
 func can_hear(event: Dictionary, listener_location: String, listener_offset_m: float, threshold_db: float, graph: Dictionary, environment: Dictionary, attention_bonus_db: float = 0.0) -> bool:
-	var floor_db: float = maxf(threshold_db - attention_bonus_db, background_db(listener_location, environment) + 3.0 - attention_bonus_db)
+	var floor_db: float = maxf(threshold_db - attention_bonus_db, background_db(listener_location, environment) + 3.0)
 	return received_db(event, listener_location, listener_offset_m, graph, environment) >= floor_db
 
 func hear(state: Dictionary, listener_location: String, graph: Dictionary, environment: Dictionary, threshold_db: float = 23.0, attention_bonus_db: float = 0.0, ignore_owner: String = "player") -> Array:
 	var records: Array = []
+	var recorded: Dictionary = {}
 	var ordered: Array = state.get("events", []).duplicate(true)
 	ordered.reverse()
 	for event: Dictionary in ordered:
@@ -99,6 +103,8 @@ func hear(state: Dictionary, listener_location: String, graph: Dictionary, envir
 		var strong: bool = audible_db >= noise_floor + 7.0
 		var kind: String = str(event.get("kind", "environment"))
 		var text_value: String = _uncertain_description(kind, strong)
+		if recorded.has(text_value): continue
+		recorded[text_value] = true
 		records.append({"text":text_value, "kind":kind if strong else "unidentified",
 			"severity":"warning" if strong and kind in ["shuffling", "impact", "metal"] else "ordinary",
 			"confidence":"recognizable" if strong else "uncertain"})
