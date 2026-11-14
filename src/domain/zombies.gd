@@ -227,10 +227,13 @@ func _sense(id: String, a: Dictionary, context: Dictionary, graph: Dictionary, e
 	# real vision/portal graph. No blind omniscient target updates.
 	if str(a.location) == player_location:
 		var light: float = clampf(float(context.get("player_light",0.0)),0.0,1.0)
-		var visibility: float = 55.0 * light * float(a.tissue_integrity)
+		var sensory: Dictionary = anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0)
+		var visibility: float = 55.0 * light * float(a.tissue_integrity) * float(sensory.vision)
 		if float(a.distance_m) <= visibility and a.posture != "fallen":
 			return {"kind":"seen","location":player_location}
 	if model == null or sounds.is_empty(): return {}
+	var hearing: Dictionary = anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0)
+	if float(hearing.hearing_loss_db) >= 55.0: return {}
 	var strongest: float = -INF
 	var found: Dictionary = {}
 	var entries: Array = sounds.get("events",[])
@@ -240,7 +243,7 @@ func _sense(id: String, a: Dictionary, context: Dictionary, graph: Dictionary, e
 		if owner.begins_with("infected_") or int(stimulus.get("sequence",0)) <= int(a.last_stimulus_sequence):
 			continue
 		if not model.can_hear(stimulus,str(a.location),float(a.distance_m),
-				float(a.hearing_threshold_db),graph,environment): continue
+				float(a.hearing_threshold_db) + float(hearing.hearing_loss_db),graph,environment): continue
 		var age: float = maxf(0.0,float(sounds.get("time_s",0.0))-float(stimulus.time_s))
 		var score: float = model.received_db(stimulus,str(a.location),float(a.distance_m),graph,environment)-age*0.08
 		if score > strongest:
@@ -293,6 +296,12 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 			var force: Dictionary = anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0)
 			var impact: float = 45.0 * float(a.tissue_integrity) * float(a.leg_integrity) * float(force.grip)
 			var strike: Dictionary = nav.strike(state.doors,str(a.location),destination,impact)
+			# Force is transmitted back to the striking arm. Repeated impacts
+			# have a localized musculoskeletal cost rather than damage to HP.
+			if strike.get("ok",false):
+				anatomy.injure(a.anatomy,{"part":"right_arm",
+					"tissue_damage":{"muscle":minf(0.012,impact/7000.0),
+						"bone":minf(0.008,impact/12000.0)}})
 			a.impact_cooldown_s = 20.0
 			events.append({"type":"infected_door_breach" if strike.get("breached",false) else "infected_door_hit",
 				"actor_id":id,"location":str(a.location),"offset_m":0.0, "other":destination, "impact_j":impact})

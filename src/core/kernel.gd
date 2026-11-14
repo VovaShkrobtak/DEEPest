@@ -425,7 +425,7 @@ func _append_events(events: Array) -> void:
 				"footsteps" if event_type == "npc_arrival" else "water",
 				57.0 if event_type == "npc_arrival" else 54.0, "npc")
 			continue
-		if event_type in ["infected_door_hit","infected_door_breach","infected_fall"]:
+		if event_type in ["infected_door_hit","infected_door_breach","infected_fall","infected_collapse"]:
 			modules.acoustics.emit(_state.acoustics,modules.world.locations(),event_location,
 				"impact",98.0 if event_type == "infected_door_breach" else (85.0 if event_type == "infected_door_hit" else 79.0),
 				str(event.get("actor_id","world_collision")),float(event.get("offset_m",0.0)))
