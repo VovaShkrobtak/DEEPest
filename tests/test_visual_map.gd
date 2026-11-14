@@ -1,6 +1,6 @@
 extends SceneTree
 ## Schematic map must be a pure observer-based UI and activate only actual exits.
-const Projection = preload("res://src/application/map_projection.gd")
+const MapProjectionScript = preload("res://src/application/map_projection.gd")
 const Map = preload("res://src/adapters/visual_map.gd")
 const Kernel = preload("res://src/core/kernel.gd")
 var failures: Array[String] = []
@@ -12,7 +12,7 @@ func _run() -> void:
 	var kernel = Kernel.new(1998)
 	var observer_snapshot: Dictionary = kernel.snapshot()
 	var before: String = JSON.stringify(kernel.export_state())
-	var projection = Projection.new()
+	var projection = MapProjectionScript.new()
 	var house: Dictionary = projection.build(observer_snapshot)
 	_check(house.get("mode", "") == "house", "Initial home uses house schematic")
 	_check(house.get("routes", []).size() == 1, "Home has only actual yard exit")
