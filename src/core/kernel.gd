@@ -18,9 +18,8 @@ func _init(seed_value: int = 1998) -> void:
 		"location":"shelter","body":modules.physiology.initial_state(),"environment":modules.environment.initial_state(seed_value),
 		"world":modules.world.initial_state(seed_value),"items":modules.items.initial_state(),"action":{},"journal":[],"trace":[],"action_log":[],
 		"work_progress":{},"knowledge":{},"goals":[],"won":false,"consumed":{},"ground":{}}
-	_log("arrival", "14 октября 1998 года. Связи нет третьи сутки. До темноты нужно обжить дом: проверить дымоход, растопить печь и запасти воду.")
-	_log("hint", "На руке саднит порез. Из ткани можно сделать повязку. Нина в медпункте и Павел в мастерской тоже пытаются пережить холод.")
-	_update_goals()
+	_log("arrival", "14 октября 1998 года. Посёлок затих. По улицам бродят заражённые. Здесь нет сюжета, квестов или спасательного финала.")
+	_log("hint", "На руке саднит порез. Из ткани можно сделать повязку. Выживание зависит от действий, звуков и состояния мира.")
 
 func _result(ok: bool, message: String = "") -> Dictionary:
 	return {"ok":ok,"message":message}
@@ -106,7 +105,7 @@ func _validate(id: String, arguments: Dictionary) -> String:
 	var inv: Dictionary = _state.items.inventory
 	var room: Dictionary = _state.environment.rooms.get(_state.location,{})
 	if not _state.action.is_empty(): return "Сначала завершите или прервите текущее действие."
-	if not _state.body.alive: return "История этого персонажа завершена. Начните новое прохождение."
+	if not _state.body.alive: return "Персонаж погиб. Можно начать новое выживание."
 	if not _state.body.conscious and verb != "wait": return "Вы без сознания. Можно дать времени пройти."
 	match verb:
 		"move":
@@ -258,8 +257,7 @@ func step(seconds: float) -> Dictionary:
 				_trace("action_complete",action)
 			else:
 				_log("interrupted","Работа остановлена: " + reason + " Потраченное время сохраняется.")
-		_update_goals()
-	return _result(true)
+		return _result(true)
 
 func _append_events(events: Array) -> void:
 	for event: Dictionary in events:
@@ -335,7 +333,7 @@ func _complete(action: Dictionary) -> void:
 		"craft_bandage","repair_radio","repair_cart","switch_radio","switch_lamp","cook":
 			_item(verb)
 			if verb == "switch_radio" and _state.items.electricity.radio_on:
-				_log("radio","Сквозь помехи: «…районный узел работает… оставайтесь в укрытии… проверка связи в шесть утра…»")
+				_log("radio","Сквозь помехи доносится обрывок чужого разговора. Никто не обещает эвакуации.")
 		"gather_wood","hunt":
 			modules.world.apply(_state.world,{"kind":verb,"mass_kg":2.0 if verb == "gather_wood" else 0.4})
 			_item("add_item",{"item":"wood" if verb == "gather_wood" else "ration","amount":2 if verb == "gather_wood" else 1})
@@ -360,24 +358,6 @@ func _complete(action: Dictionary) -> void:
 			_item("add_item",{"item":"potato","amount":10})
 	_body("practice",{"skill":verb})
 
-func _update_goals() -> void:
-	var room: Dictionary = _state.environment.rooms.shelter
-	var water: Dictionary = _state.items.water
-	var electric: Dictionary = _state.items.electricity
-	if electric.radio_on: _state.knowledge.radio_received = true
-	_state.goals = [
-		{"title":"Обжить дом","text":"Очистить дымоход и согреть комнату.","done":room.chimney_clean and room.temp_k >= 285.15},
-		{"title":"Подготовить воду","text":"Прокипятить запас, дать ему остыть.","done":water.boil_exposure_s >= 60.0 and water.volume_kg >= 0.25 and water.temp_k <= 323.15},
-		{"title":"Помочь Нине","text":"Дойти до медпункта с готовой повязкой.","done":_state.world.npcs.nina.helped},
-		{"title":"Вернуть связь","text":"Отремонтировать приёмник и поймать сообщение.","done":electric.radio_repaired and _state.knowledge.get("radio_received",false)},
-		{"title":"Встретить утро","text":"Дожить до 06:00 в сознании.","done":_state.time_s >= 49200 and _state.body.alive and _state.body.conscious}]
-	var all_done: bool = true
-	for goal: Dictionary in _state.goals:
-		if not goal.done: all_done = false
-	if all_done and not _state.won:
-		_state.won = true
-		_log("milestone","Первая ночь позади. В доме есть тепло и вода, Нина получила помощь, связь восстановлена. Можно продолжать жить в этом мире.")
-
 func snapshot() -> Dictionary:
 	var Observer: Script = load("res://src/application/observer.gd")
 	return Observer.new().build(_state,modules)
@@ -392,6 +372,9 @@ func restore_state(data: Dictionary) -> Dictionary:
 	var reason: String = validate_state(data)
 	if reason != "": return _result(false,reason)
 	_state = data.duplicate(true)
+	# Old first-night quest fields remain for save compatibility, but do not govern play.
+	_state.goals = []
+	_state.won = false
 	return _result(true,"Сохранение загружено.")
 
 func validate_state(data: Dictionary) -> String:

@@ -21,6 +21,7 @@ var snapshot: Dictionary = {}
 var selected_tab: String = "Мир"
 var text_scale: float = 1.0
 var reduced_motion: bool = true
+var portrait_mode: bool = false # Android: landscape by default.
 var debug_visible: bool = false
 var message: String = "Вы здесь. Прислушайтесь к себе и осмотритесь."
 var root_column: VBoxContainer
@@ -47,6 +48,7 @@ func _ready() -> void:
 	_resume_autosave()
 	get_tree().auto_accept_quit = false
 	_load_settings()
+	_apply_orientation()
 	_install_theme()
 	_build_shell()
 	action_timer = Timer.new()
@@ -108,7 +110,7 @@ func _build_shell() -> void:
 	clock_label = _label("", 13, AMBER)
 	clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	masthead.add_child(clock_label)
-	root_column.add_child(_label("П О Л Е В О Й   Д Н Е В Н И К   /   В Ы Ж И В А Н И Е", 10, MUTED))
+	root_column.add_child(_label("П О Л Е В О Й   Д Н Е В Н И К   /   З О М Б И - В Ы Ж И В А Н И Е", 10, MUTED))
 	root_column.add_child(HSeparator.new())
 	layout = HBoxContainer.new()
 	layout.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -357,7 +359,7 @@ func _build_conditions(parent: Node) -> void:
 	for warning in body.get("warnings", []) + conditions.get("warnings", []): senses.add_child(_label(str(warning), 13, AMBER))
 	var inv: Dictionary = snapshot.get("inventory", {})
 	_section(parent, "ЗАПАСЫ", str(inv.get("water_text", "")) + "\n" + str(inv.get("load_text", "")))
-	parent.add_child(_label("АВТОНОМНО · БЕЗ СЕТИ\nСЕВЕРНАЯ ПРОВИНЦИЯ, 1998", 10, MUTED))
+	parent.add_child(_label("БЕЗ СЕТИ · НЕТ ФИНАЛЬНОЙ ЦЕЛИ\nСЕВЕРНАЯ ПРОВИНЦИЯ, 1998", 10, MUTED))
 
 func _settings_page() -> void:
 	_section(page, "ВАШ ДНЕВНИК", "Сохранение включает мир, вещи и незавершённое действие.")
@@ -381,6 +383,13 @@ func _settings_page() -> void:
 	motion.custom_minimum_size.y = 48
 	motion.toggled.connect(func(value: bool): reduced_motion = value; _save_settings())
 	box.add_child(motion)
+	var orientation := _section(page, "ОРИЕНТАЦИЯ ЭКРАНА", "Android: по умолчанию горизонтально. Вертикальный режим включается вручную.")
+	var portrait_toggle := CheckButton.new()
+	portrait_toggle.text = "Вертикальный режим (Android)"
+	portrait_toggle.button_pressed = portrait_mode
+	portrait_toggle.custom_minimum_size.y = 48
+	portrait_toggle.toggled.connect(_set_portrait_mode)
+	orientation.add_child(portrait_toggle)
 	page.add_child(_button("Диагностика разработчика", _toggle_debug))
 	if debug_visible:
 		_section(page, "DEBUG · СКРЫТЫЕ ДАННЫЕ МОДЕЛИ", JSON.stringify(kernel.debug_snapshot(), "  "))
@@ -450,7 +459,7 @@ func _confirm_new() -> void:
 	dialog.dialog_text = "Начать заново с зерном %d?\nНесохранённые изменения будут потеряны." % new_seed
 	dialog.ok_button_text = "Начать"
 	dialog.cancel_button_text = "Отмена"
-	dialog.confirmed.connect(func(): kernel = Kernel.new(new_seed); message = "Начинается новый день."; selected_tab = "Мир"; autosave_protected = false; _autosave(); _refresh(); dialog.queue_free())
+	dialog.confirmed.connect(func(): kernel = Kernel.new(new_seed); message = "Новый мир. Только выживание."; selected_tab = "Мир"; autosave_protected = false; _autosave(); _refresh(); dialog.queue_free())
 	dialog.canceled.connect(dialog.queue_free)
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(mini(480, int(size.x) - 32), 220))
@@ -465,10 +474,22 @@ func _toggle_debug() -> void:
 	debug_visible = not debug_visible
 	_rebuild_content()
 
+func _apply_orientation() -> void:
+	# Android-only: respect saved preference; do not rotate desktop windows.
+	if OS.get_name() == "Android":
+		DisplayServer.screen_set_orientation(DisplayServer.SCREEN_PORTRAIT if portrait_mode else DisplayServer.SCREEN_LANDSCAPE)
+
+func _set_portrait_mode(enabled: bool) -> void:
+	portrait_mode = enabled
+	_save_settings()
+	_apply_orientation()
+	_rebuild_content()
+
 func _save_settings() -> void:
 	var config := ConfigFile.new()
 	config.set_value("interface", "text_scale", text_scale)
 	config.set_value("interface", "reduced_motion", reduced_motion)
+	config.set_value("interface", "portrait_mode", portrait_mode)
 	config.save(settings_path)
 
 func _load_settings() -> void:
@@ -476,6 +497,7 @@ func _load_settings() -> void:
 	if config.load(settings_path) == OK:
 		text_scale = clampf(float(config.get_value("interface", "text_scale", 1.0)), 1.0, 2.0)
 		reduced_motion = bool(config.get_value("interface", "reduced_motion", true))
+		portrait_mode = bool(config.get_value("interface", "portrait_mode", false))
 
 func _responsive() -> void:
 	if not is_instance_valid(navigation) or rebuilding: return
@@ -505,15 +527,12 @@ func _responsive() -> void:
 func _terminal_banner() -> void:
 	var box: VBoxContainer
 	if not snapshot.get("alive", true):
-		box = _section(page, "ИСТОРИЯ ЗАВЕРШЕНА", "Ваш персонаж погиб. Сохранённый мир и журнал можно просмотреть; начните новое прохождение, чтобы продолжить игру.")
+		box = _section(page, "ПЕРСОНАЖ ПОГИБ", "Жизнь этого выжившего закончилась. Здесь нет финала: другое прохождение начнётся в новом мире.")
 		command_input.editable = false
 	elif not snapshot.get("conscious", true):
 		box = _section(page, "БЕЗ СОЗНАНИЯ", "Вы не можете действовать. Дайте времени пройти; исход зависит от условий и состояния организма.")
 		box.add_child(_button("Дать времени пройти", _perform.bind("wait", {})))
 		command_input.editable = false
-	elif snapshot.get("won", false):
-		box = _section(page, "ВЫ ВСТРЕТИЛИ УТРО", "Первые ориентиры выполнены. Убежище обжито, запасы подготовлены, связь восстановлена. Можно продолжать жить в этом мире или начать заново.")
-		command_input.editable = true
 	else:
 		command_input.editable = true
 		return

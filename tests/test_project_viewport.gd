@@ -1,5 +1,5 @@
 extends SceneTree
-## Run with real project scaling: godot --path . --resolution 390x844 -s tests/test_project_viewport.gd
+## Landscape design with portrait window fallback in headless tests.
 func _initialize() -> void:
 	call_deferred("verify")
 func verify() -> void:
@@ -11,8 +11,8 @@ func verify() -> void:
 	var viewport_size: Vector2 = root.get_visible_rect().size
 	var failed: bool = false
 	print("Project viewport: physical=", root.size, " logical=", viewport_size, " content_scale=", root.content_scale_size, " mode=", root.content_scale_mode)
-	if root.content_scale_size != Vector2i(390, 844):
-		push_error("Project design viewport must use portrait dimensions")
+	if root.content_scale_size != Vector2i(1280, 720):
+		push_error("Project design viewport must use landscape dimensions")
 		failed = true
 	if root.size != Vector2i(390, 844):
 		push_error("Launch this portrait check with --resolution 390x844")

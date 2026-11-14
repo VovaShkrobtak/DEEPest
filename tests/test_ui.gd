@@ -110,11 +110,12 @@ func _run() -> void:
 	scene._advance()
 	scene._advance()
 	_check(scene.kernel.snapshot().action.is_empty(), "Timed action completes through UI")
+	_check(not scene.kernel.snapshot().won and scene.kernel.snapshot().goals.is_empty(), "No first-night goals or completion state")
 	_check(FileAccess.file_exists(scene.autosave_path), "Completion writes autosave")
 	_check(scene.message == scene.snapshot.journal.back().text, "Completion reports latest public result")
 	scene.snapshot["won"] = true
 	scene._rebuild_content()
-	_check(_has_label(scene.page, "ВЫ ВСТРЕТИЛИ УТРО"), "Completed scenario has prominent banner")
+	_check(not _has_label(scene.page, "ВЫ ВСТРЕТИЛИ УТРО"), "No scripted victory banner")
 	scene.snapshot["won"] = false
 	scene.snapshot["alive"] = false
 	scene._rebuild_content()
@@ -125,6 +126,12 @@ func _run() -> void:
 	scene._refresh()
 	_remove_save(scene.autosave_path)
 
+	_check(not scene.portrait_mode, "Android landscape setting is the default")
+	scene._set_portrait_mode(true)
+	_check(scene.portrait_mode, "Portrait can be enabled")
+	var settings := ConfigFile.new()
+	_check(settings.load(scene.settings_path) == OK and bool(settings.get_value("interface", "portrait_mode", false)), "Orientation persists")
+	scene._set_portrait_mode(false)
 	scene._set_scale(2.0)
 	root.size = Vector2i(390, 844)
 	await process_frame

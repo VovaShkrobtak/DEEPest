@@ -50,7 +50,7 @@ func _initialize() -> void:
 	check(end.time_s >= 49200,"Reached dawn")
 	check(end.world.npcs.nina.helped,"Helped Nina")
 	check(end.items.electricity.radio_repaired,"Repaired radio")
-	check(end.won,"All first-night goals met")
+	check(not end.won and end.goals.is_empty(),"No campaign victory or quests at dawn")
 	var player_drawn: float = float(end.items.water.volume_kg) + float(end.body.skills.get("drink",0)) * 0.25 - 0.5
 	var npc_drawn: float = 0.0
 	for npc: Dictionary in end.world.npcs.values():
