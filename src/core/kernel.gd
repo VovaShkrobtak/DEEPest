@@ -8,19 +8,20 @@ const Items = preload("res://src/domain/items.gd")
 const Zombies = preload("res://src/domain/zombies.gd")
 const Acoustics = preload("res://src/domain/acoustics.gd")
 const Anatomy = preload("res://src/domain/anatomy.gd")
+const Props = preload("res://src/domain/objects.gd")
 const BUILD: String = "0.1.0"
 const CONTENT_HASH: String = "deepest-first-night-v1"
 const MAX_JOURNAL: int = 180
 const MAX_TRACE: int = 240
-const WORK_IDS: Array[String] = ["clean_chimney","seal_window","craft_bandage","repair_radio","repair_cart"]
-var modules: Dictionary = {"physiology":Physiology.new(),"environment":EnvModel.new(),"world":World.new(),"items":Items.new(),"zombies":Zombies.new(),"acoustics":Acoustics.new()}
+const WORK_IDS: Array[String] = ["clean_chimney","seal_window","craft_bandage","repair_radio","repair_cart","prop_dismantle"]
+var modules: Dictionary = {"physiology":Physiology.new(),"environment":EnvModel.new(),"world":World.new(),"items":Items.new(),"zombies":Zombies.new(),"acoustics":Acoustics.new(),"props":Props.new()}
 var _state: Dictionary
 
 func _init(seed_value: int = 1998) -> void:
 	_state = {"schema_version":1,"build":BUILD,"content_hash":CONTENT_HASH,"seed":seed_value,"time_s":0,"revision":0,
 		"location":"shelter","body":modules.physiology.initial_state(),"environment":modules.environment.initial_state(seed_value),
 		"world":modules.world.initial_state(seed_value),"items":modules.items.initial_state(),"zombies":modules.zombies.initial_state(seed_value),"acoustics":modules.acoustics.initial_state(),"action":{},"journal":[],"trace":[],"action_log":[],
-		"work_progress":{},"knowledge":{},"goals":[],"won":false,"consumed":{},"ground":{}}
+		"work_progress":{},"knowledge":{},"goals":[],"won":false,"consumed":{},"ground":{},"props":modules.props.initial_state()}
 	_log("arrival", "14 октября 1998 года. Посёлок затих. По улицам бродят заражённые. Здесь нет сюжета, квестов или спасательного финала.")
 	_log("hint", "На руке саднит порез. Из ткани можно сделать повязку. Выживание зависит от действий, звуков и состояния мира.")
 
@@ -123,14 +124,59 @@ func available_actions() -> Array:
 	out.append(_action("switch_radio","Выключить радио" if _state.items.electricity.radio_on else "Включить радио",30,"Исправный приёмник расходует заряд; он не работает без питания.","Ремесло"))
 	out.append(_action("switch_lamp","Выключить фонарь" if _state.items.electricity.lamp_on else "Включить фонарь",30,"Фонарь даёт свет и расходует батарею.","Вещи"))
 	out.append(_action("repair_cart","Отремонтировать тележку",1800,"В мастерской: 1 кг дерева и деталь. Грузоподъёмность станет больше.","Ремесло"))
+
+	# Every object uses the same verbs, force model, geometry and material rules.
+	# Unseen targets never enter the public action catalogue.
+	if _player_light() >= 0.05:
+		for object_id: String in Props.DATA:
+			var entry: Dictionary = _state.props.entities[object_id]
+			if str(entry.location) != _state.location: continue
+			var definition: Dictionary = Props.DATA[object_id]
+			var title: String = str(definition.title)
+			out.append(_prop_action("prop_inspect:"+object_id,"Осмотреть: "+title,25,
+				"Материал, размеры и состояние.","Предметы",{"object_id":object_id},str(definition.alias)))
+			if not bool(entry.intact): continue
+			if str(entry.placement).begins_with("door:"):
+				out.append(_prop_action("prop_unbrace:"+object_id,"Отодвинуть от двери: "+title,150,
+					"Освободить дверь, сохранив предмет.","Предметы",{"object_id":object_id},str(definition.alias)))
+			else:
+				out.append(_prop_action("prop_dismantle:"+object_id,"Разобрать: "+title,600,
+					"Материалы и обломки останутся на земле.","Предметы",{"object_id":object_id},str(definition.alias)))
+				for other: String in graph[_state.location].connections:
+					var distance: float = float(graph[_state.location].connections[other])
+					out.append(_prop_action("prop_move:"+object_id+":"+other,"Перетащить "+title+": "+str(graph[other].title),
+						maxi(120,ceili(distance/0.35)),"Сопротивление пола, ширина прохода, усталость.","Предметы",
+						{"object_id":object_id,"other":other},str(definition.alias)))
+					if not modules.zombies.nav.door_for(_state.zombies.doors,_state.location,other).is_empty():
+						out.append(_prop_action("prop_brace:"+object_id+":"+other,"Подпереть дверь: "+title,180,
+							"Добавить физическое сопротивление закрытой двери.","Предметы",
+							{"object_id":object_id,"other":other},str(definition.alias)))
+	for item: String in _state.ground.get(_state.location,{}):
+		if int(_state.ground[_state.location][item])>0:
+			out.append(_action("ground_take:"+item,"Подобрать: "+str(Items.TITLES[item]),45,
+				"Переложить одну единицу с земли в снаряжение.","Предметы",{"item":item}))
+	for item: String in ["wood","parts","cloth","tool"]:
+		if int(_state.items.inventory.get(item,0))>0:
+			out.append(_action("ground_drop:"+item,"Оставить: "+str(Items.TITLES[item]),30,
+				"Оставить одну единицу здесь, не уничтожая её.","Предметы",{"item":item}))
 	return out
+
+func _prop_action(id: String,title: String,seconds: int,description: String,category: String,params: Dictionary,alias: String) -> Dictionary:
+	var descriptor: Dictionary = _action(id,title,seconds,description,category,params)
+	descriptor["object_alias"] = alias
+	return descriptor
 
 func _base(id: String) -> String:
 	return id.split(":")[0]
 
 func _params(id: String, args: Dictionary) -> Dictionary:
 	var params: Dictionary = args.duplicate(true)
-	if id.begins_with("move:"):
+	if id.begins_with("prop_"):
+		params["object_id"] = id.get_slice(":",1)
+		if id.get_slice_count(":")>2: params["other"] = id.get_slice(":",2)
+	elif id.begins_with("ground_"):
+		params["item"] = id.get_slice(":",1)
+	elif id.begins_with("move:"):
 		params["target"] = id.substr(5)
 	elif id.begins_with("bandage:"):
 		params["part"] = id.substr(8)
@@ -153,6 +199,19 @@ func _validate(id: String, arguments: Dictionary) -> String:
 	var functional_block: String = modules.physiology.action_limit(_state.body, verb)
 	if not functional_block.is_empty(): return functional_block
 	match verb:
+		"prop_inspect","prop_move","prop_brace","prop_unbrace","prop_dismantle":
+			if _player_light()<0.05: return "Слишком темно, чтобы различить предмет."
+			var caps: Dictionary = modules.physiology.capabilities(_state.body)
+			return modules.props.can_act(_state.props,str(args.get("object_id","")),verb,_state.location,
+				str(args.get("other","")),modules.world.locations(),_state.zombies.doors,
+				float(caps.grip),float(caps.mobility),int(inv.tool)>0 and float(_state.items.tool_wear_j)<1000000.0)
+		"ground_take","ground_drop":
+			var item: String = str(args.get("item",""))
+			if not Items.MASS.has(item): return "Неизвестный предмет."
+			if verb == "ground_take":
+				if int(_state.ground.get(_state.location,{}).get(item,0))<1: return "Такого предмета на земле больше нет."
+				return modules.items.validate(_state.items,{"kind":"add_item","item":item,"amount":1})
+			return modules.items.validate(_state.items,{"kind":"remove_item","item":item,"amount":1})
 		"move":
 			var target: String = str(args.get("target",""))
 			if not modules.world.locations()[_state.location].connections.has(target):
@@ -176,7 +235,9 @@ func _validate(id: String, arguments: Dictionary) -> String:
 				if float(door.brace_kg) >= 12.0: return "Дальше подпирать некуда."
 				return modules.items.validate(_state.items,{"kind":"remove_item","item":"wood","amount":1})
 			if float(door.brace_kg) <= 0.0: return "Подпорки нет."
-			return modules.items.validate(_state.items,{"kind":"add_item","item":"wood","amount":int(door.brace_kg)})
+			var key: String = modules.props.door_key(_state.location,other)
+			var loose_wood: int = maxi(0,int(round(float(door.brace_kg)-modules.props.brace_at(_state.props,key))))
+			return modules.items.validate(_state.items,{"kind":"add_item","item":"wood","amount":loose_wood}) if loose_wood>0 else ""
 		"shove","break_grapple":
 			var local: String = modules.zombies.availability(_state.zombies,{"kind":verb,"location":_state.location})
 			if local != "": return local
@@ -314,7 +375,7 @@ func step(seconds: float) -> Dictionary:
 		item_context.location = _state.location
 		_append_events(modules.items.advance(_state.items,dt,item_context))
 		var body_context: Dictionary = air.duplicate(true)
-		body_context.exertion = 0.55 if verb == "retreat" else (0.42 if verb in ["move","gather_wood","hunt","plant","repair_cart"] else (0.1 if verb in ["rest","sleep","wait","dry_clothes","listen"] else 0.22))
+		body_context.exertion = 0.55 if verb in ["retreat","prop_move","prop_brace","prop_dismantle"] else (0.42 if verb in ["move","gather_wood","hunt","plant","repair_cart"] else (0.1 if verb in ["rest","sleep","wait","dry_clothes","listen"] else 0.22))
 		body_context.sleeping = verb in ["sleep","rest"]
 		_append_events(modules.physiology.advance(_state.body,dt,body_context))
 		_append_events(modules.world.advance(_state.world,dt,{"weather":_state.environment.weather,"rooms":_state.environment.rooms,"hour":fmod(16.0 + 20.0 / 60.0 + float(_state.time_s)/3600.0,24.0)}))
@@ -343,6 +404,7 @@ func step(seconds: float) -> Dictionary:
 				_body("infected_contact",event)
 				tactile_contact = true
 		_append_events(infected_events)
+		modules.props.reconcile_breaches(_state.props,_state.zombies.doors)
 		_state.time_s += dt
 		action.elapsed_s += dt
 		remaining -= dt
@@ -389,6 +451,8 @@ func _player_light() -> float:
 
 func _action_sound_kind(verb: String) -> String:
 	match verb:
+		"prop_move","prop_brace","prop_unbrace","prop_dismantle": return "work"
+		"ground_drop": return "impact"
 		"move", "retreat", "shove", "break_grapple": return "footsteps"
 		"gather_wood", "repair_cart", "clean_chimney", "repair_radio": return "work"
 		"hunt": return "impact"
@@ -401,6 +465,11 @@ func _action_sound_kind(verb: String) -> String:
 func _action_noise_db(verb: String) -> float:
 	# Simplified acoustic source-level assumptions at 1 metre; see docs/10.
 	match verb:
+		"prop_dismantle": return 82.0
+		"prop_move","prop_brace": return 76.0
+		"prop_unbrace": return 69.0
+		"prop_inspect": return 30.0
+		"ground_drop": return 55.0
 		"sleep", "wait": return 12.0
 		"listen": return 18.0
 		"inspect": return 38.0
@@ -466,6 +535,55 @@ func _complete(action: Dictionary) -> void:
 	var params: Dictionary = action.parameters
 	match verb:
 
+		"prop_inspect":
+			var object_id: String = str(params.get("object_id",""))
+			var info: Dictionary = Props.DATA[object_id]
+			_log("observation","Осмотрено: "+str(info.title)+". "+str(info.material)+", около %.1f кг." % float(info.mass_kg))
+		"prop_move":
+			var object_id: String = str(params.get("object_id",""))
+			modules.props.apply(_state.props,object_id,verb,str(params.get("other","")))
+			_log("action","Перемещено: "+str(Props.DATA[object_id].title))
+		"prop_brace":
+			var object_id: String = str(params.get("object_id",""))
+			var other: String = str(params.get("other",""))
+			var weight: float = modules.props.brace_weight(object_id,_state.props.entities[object_id])
+			var outcome: Dictionary = modules.zombies.door_action(_state.zombies,modules.world.locations(),_state.location,other,"brace",weight)
+			if bool(outcome.get("ok",false)):
+				modules.props.apply(_state.props,object_id,verb,other)
+				_log("action","Мебель придвинута к двери; сопротивление прохода возросло.")
+		"prop_unbrace":
+			var object_id: String = str(params.get("object_id",""))
+			var entry: Dictionary = _state.props.entities[object_id]
+			var key: String = str(entry.placement).substr(5)
+			var ends: PackedStringArray = key.split("|")
+			var other: String = ends[1] if ends[0]==_state.location else ends[0]
+			var weight: float = modules.props.brace_weight(object_id,entry)
+			var outcome: Dictionary = modules.zombies.door_action(_state.zombies,modules.world.locations(),_state.location,other,"clear_prop",weight)
+			if bool(outcome.get("ok",false)):
+				modules.props.apply(_state.props,object_id,verb)
+				_log("action","Предмет отодвинут, дверь больше не удерживается им.")
+		"prop_dismantle":
+			var object_id: String = str(params.get("object_id",""))
+			var result: Dictionary = modules.props.apply(_state.props,object_id,verb)
+			var stash: Dictionary = _state.ground.get(_state.location,{}).duplicate(true)
+			for item: String in result.salvage:
+				stash[item] = int(stash.get(item,0))+int(result.salvage[item])
+			_state.ground[_state.location] = stash
+			_state.items.tool_wear_j += 5000.0
+			_log("action","Разобрано: "+str(Props.DATA[object_id].title)+". Детали остались на земле.")
+		"ground_take":
+			var item: String = str(params.get("item",""))
+			_item("add_item",{"item":item,"amount":1})
+			_state.ground[_state.location][item] -= 1
+			if _state.ground[_state.location][item]==0: _state.ground[_state.location].erase(item)
+			_log("action","Подобрано: "+str(Items.TITLES[item]))
+		"ground_drop":
+			var item: String = str(params.get("item",""))
+			_item("remove_item",{"item":item,"amount":1})
+			var stash: Dictionary = _state.ground.get(_state.location,{}).duplicate(true)
+			stash[item] = int(stash.get(item,0))+1
+			_state.ground[_state.location] = stash
+			_log("action","Оставлено: "+str(Items.TITLES[item]))
 		"listen":
 			var hearing_penalty: float = 0.0
 			if float(_state.body.blood_kg) < 4.0: hearing_penalty += 8.0
@@ -492,7 +610,12 @@ func _complete(action: Dictionary) -> void:
 				modules.world.locations(),_state.location,other,step_kind,1.0 if verb == "door_brace" else 0.0)
 			if outcome.get("ok",false):
 				if verb == "door_brace": _consume("wood",1)
-				elif verb == "door_unbrace": _item("add_item",{"item":"wood","amount":int(outcome.get("recovered_kg",0.0))})
+				elif verb == "door_unbrace":
+					var key: String = modules.props.door_key(_state.location,other)
+					var prop_weight: float = modules.props.brace_at(_state.props,key)
+					var wood: int = maxi(0,int(round(float(outcome.get("recovered_kg",0.0))-prop_weight)))
+					if wood>0: _item("add_item",{"item":"wood","amount":wood})
+					modules.props.release_door(_state.props,key)
 				_log("action","Дверь и проход физически изменили состояние.")
 			else:
 				_log("interrupted",str(outcome.get("reason","Дверь не поддалась.")))
@@ -598,6 +721,8 @@ func restore_state(data: Dictionary) -> Dictionary:
 		upgraded["zombies"]["time_s"] = float(upgraded.get("time_s",0))
 	if upgraded.has("zombies") and upgraded.zombies is Dictionary and int(upgraded.zombies.get("schema_version",0)) in [1,2]:
 		upgraded["zombies"] = modules.zombies.migrate_state(upgraded.zombies)
+	if not upgraded.has("props") and upgraded.has("time_s"):
+		upgraded["props"] = modules.props.initial_state()
 	if not upgraded.has("acoustics") and upgraded.has("time_s"):
 		upgraded["acoustics"] = modules.acoustics.initial_state()
 		upgraded["acoustics"]["time_s"] = float(upgraded.get("time_s", 0))
@@ -633,7 +758,7 @@ func _legacy_anatomy(body: Dictionary) -> Dictionary:
 
 func validate_state(data: Dictionary) -> String:
 	if data.get("schema_version",0) != 1 or data.get("build","") != BUILD or data.get("content_hash","") != CONTENT_HASH: return "Несовместимая версия сохранения или контента."
-	for key: String in ["seed","time_s","revision","location","body","environment","world","items","zombies","acoustics","action","journal","trace","action_log","work_progress","knowledge","goals","won","consumed","ground"]:
+	for key: String in ["seed","time_s","revision","location","body","environment","world","items","zombies","acoustics","action","journal","trace","action_log","work_progress","knowledge","goals","won","consumed","ground","props"]:
 		if not data.has(key): return "Сохранение неполное: " + key
 	if not _finite_tree(data): return "Сохранение содержит недопустимые численные значения."
 	var acoustic_reason: String = modules.acoustics.validate_state(data.acoustics, modules.world.locations())
@@ -641,6 +766,8 @@ func validate_state(data: Dictionary) -> String:
 	var infected_reason: String = modules.zombies.validate_state(data.zombies, modules.world.locations())
 	if infected_reason != "": return infected_reason
 	var graph: Dictionary = modules.world.locations()
+	var prop_issue: String = modules.props.validate_state(data.props,graph,data.zombies.doors)
+	if prop_issue!="": return prop_issue
 	if not data.location is String or not graph.has(data.location): return "В сохранении неизвестное место."
 	for field: String in ["seed","time_s","revision"]:
 		if not _whole(data[field]) or float(data[field]) < 0.0 or float(data[field]) > 9007199254740991.0: return "Недопустимое целое поле: " + field
@@ -648,6 +775,10 @@ func validate_state(data: Dictionary) -> String:
 		if not data[pair[0]] is Dictionary or not _same_shape(pair[1],data[pair[0]]): return "Повреждена схема модуля: " + str(pair[0])
 	for key: String in ["action","work_progress","knowledge","consumed","ground"]:
 		if not data[key] is Dictionary: return "Повреждено поле " + key
+	for site: String in data.ground:
+		if not graph.has(site) or not data.ground[site] is Dictionary: return "Повреждены предметы на земле."
+		for item: String in data.ground[site]:
+			if not Items.MASS.has(item) or not _whole(data.ground[site][item]) or int(data.ground[site][item])<0: return "Недопустимые припасы на земле."
 	for key: String in ["journal","trace","action_log","goals"]:
 		if not data[key] is Array: return "Повреждена очередь " + key
 	if not data.won is bool: return "Повреждено состояние целей."
@@ -680,7 +811,7 @@ func validate_state(data: Dictionary) -> String:
 		if reason != "": return reason
 	for id: String in data.work_progress:
 		var job: PackedStringArray = id.split("@")
-		if job.size() != 2 or not job[0] in WORK_IDS or (not graph.has(job[1]) and job[1] != "player") or not _whole(data.work_progress[id]) or data.work_progress[id] >= _duration(job[0]) * 4 or data.work_progress[id] < 0: return "Некорректный прогресс работы."
+		if job.size() != 2 or not _base(str(job[0])) in WORK_IDS or (not graph.has(job[1]) and job[1] != "player") or not _whole(data.work_progress[id]) or data.work_progress[id] >= _duration(_base(str(job[0]))) * 4 or data.work_progress[id] < 0: return "Некорректный прогресс работы."
 	for entry: Variant in data.journal:
 		if not entry is Dictionary or not entry.get("text") is String or not entry.get("type") is String or not _whole(entry.get("time_s")) or not entry.get("location") is String: return "Повреждена запись журнала."
 	return ""
@@ -689,7 +820,7 @@ func _work_key(id: String, location: String) -> String:
 	return id + "@" + ("player" if id == "craft_bandage" else location)
 
 func _duration(id: String) -> int:
-	return int({"inspect":60,"listen":20,"retreat":30,"shove":18,"break_grapple":12,"door_open":25,"door_close":25,"door_brace":90,"door_unbrace":60,"clean_chimney":600,"add_fuel":60,"light_fire":180,"extinguish":60,"ventilate":30,"seal_window":900,"boil_water":1200,"cook":900,"dry_clothes":1800,"fill_water":180,"gather_wood":1200,"hunt":3600,"plant":1200,"water_garden":180,"harvest":1200,"talk":300,"share_food":120,"trade":300,"help_nina":600,"drink":30,"eat":300,"craft_bandage":300,"bandage":180,"wash_wound":120,"rest":1800,"sleep":7200,"wait":600,"repair_radio":1500,"switch_radio":30,"switch_lamp":30,"repair_cart":1800}.get(id,0))
+	return int({"inspect":60,"listen":20,"retreat":30,"shove":18,"break_grapple":12,"door_open":25,"door_close":25,"door_brace":90,"door_unbrace":60,"clean_chimney":600,"add_fuel":60,"light_fire":180,"extinguish":60,"ventilate":30,"seal_window":900,"boil_water":1200,"cook":900,"dry_clothes":1800,"fill_water":180,"gather_wood":1200,"hunt":3600,"plant":1200,"water_garden":180,"harvest":1200,"talk":300,"share_food":120,"trade":300,"help_nina":600,"drink":30,"eat":300,"craft_bandage":300,"bandage":180,"wash_wound":120,"rest":1800,"sleep":7200,"wait":600,"repair_radio":1500,"switch_radio":30,"switch_lamp":30,"repair_cart":1800,"prop_inspect":25,"prop_move":120,"prop_brace":180,"prop_unbrace":150,"prop_dismantle":600,"ground_take":45,"ground_drop":30}.get(id,0))
 
 func _validate_saved_action(action: Dictionary, location: String, graph: Dictionary) -> String:
 	for key: String in ["id","title","elapsed_s","duration_s","parameters","start_location"]:
@@ -704,9 +835,17 @@ func _validate_saved_action(action: Dictionary, location: String, graph: Diction
 		var factor: float = float(action.ability_factor)
 		if not is_finite(factor) or factor < 0.30 or factor > 1.0: return "Неверный функциональный множитель."
 		var base: int = int(action.base_duration_s)
-		if base <= 0 or (verb != "move" and base != _duration(verb)) or int(action.duration_s) != maxi(base, ceili(float(base) / factor)):
+		if base <= 0 or (verb not in ["move","prop_move"] and base != _duration(verb)) or int(action.duration_s) != maxi(base, ceili(float(base) / factor)):
 			return "Длительность действия не соответствует сохранённым возможностям тела."
-	if verb.begins_with("door_"):
+	if verb.begins_with("prop_"):
+		var object_id: String = str(action.parameters.get("object_id",""))
+		var other: String = str(action.parameters.get("other",""))
+		if not Props.DATA.has(object_id) or action.id != verb+":"+object_id+(":"+other if verb in ["prop_move","prop_brace"] else ""): return "Неизвестный предмет действия."
+		if verb in ["prop_move","prop_brace"] and not graph[location].connections.has(other): return "Неизвестная цель перемещения."
+	elif verb.begins_with("ground_"):
+		var item: String = str(action.parameters.get("item",""))
+		if not Items.MASS.has(item) or action.id != verb+":"+item: return "Недопустимый предмет."
+	elif verb.begins_with("door_"):
 		var other: String = str(action.parameters.get("other",""))
 		if action.id != verb + ":" + other or not graph[location].connections.has(other):
 			return "Несуществующий проход в сохранении."

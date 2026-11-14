@@ -32,6 +32,7 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	descriptions.append_array(perceived.get("description", []))
 
 
+	var visible_props: Array = modules.props.observe(state.props,location) if perceived.get("can_see",false) else []
 	var visible_doors: Array = []
 	if perceived.get("can_see",false):
 		for portal: Dictionary in modules.zombies.nearby_doors(state.zombies,locations,location):
@@ -45,7 +46,7 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	return {"location_id": location, "location_title": metadata.get("title", location),
 		"description": descriptions, "conditions": environment, "body": body,
 		"inventory": inventory, "people": world.get("npcs", []) if perceived.get("can_see", false) else [],
-		"objects": (environment.get("objects", []) + world.get("resources", []) if perceived.get("can_see", false) else []) + perceived.get("visible", []) + visible_doors,
+		"objects": (environment.get("objects", []) + world.get("resources", []) if perceived.get("can_see", false) else []) + perceived.get("visible", []) + visible_doors + visible_props,
 		"threat_warnings": perceived.get("warnings", []), "hearing": perceived.get("sounds", []),
 		"vision": {"light":"темно" if float(perceived.get("light", 0.0)) < 0.05 else ("сумрачно" if float(perceived.get("light", 0.0)) < 0.16 else "различимо")},
 		"routes": metadata.get("connections", []), "journal": journal,

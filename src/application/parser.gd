@@ -64,6 +64,26 @@ func parse(text: String, actions: Array) -> Dictionary:
 	for action: Dictionary in actions:
 		if input == _normal(String(action.get("id", ""))) or input == _normal(String(action.get("title", ""))):
 			return _resolved(String(action.id), input, actions)
+
+	# Resolve only publicly exposed property-based affordances.
+	var object_verbs: Dictionary = {"осмотреть ":"prop_inspect","разобрать ":"prop_dismantle",
+		"перетащить ":"prop_move","сдвинуть ":"prop_move","подпереть ":"prop_brace","отодвинуть ":"prop_unbrace"}
+	for phrase: String in object_verbs:
+		if not input.begins_with(phrase): continue
+		var verb: String = str(object_verbs[phrase])
+		var candidates: Array = []
+		for action: Dictionary in actions:
+			if not str(action.get("id","")).begins_with(verb+":"): continue
+			var alias: String = _normal(str(action.get("object_alias","")))
+			if alias.is_empty() or not input.contains(alias): continue
+			if verb=="prop_move":
+				var target: String = str(action.get("parameters",{}).get("other",""))
+				if not LOCATIONS.has(target) or not _has_alias(input,LOCATIONS[target]): continue
+			candidates.append(action)
+		if candidates.size()==1:
+			var chosen: Dictionary = candidates[0]
+			return _result(true,str(chosen.id),chosen.get("parameters",{}).duplicate(true))
+		return _result(false,"",{},"Уточните предмет или направление по доступным действиям.")
 	var matched: Array[String] = []
 	for id: String in VERBS:
 		for alias: String in VERBS[id]:

@@ -62,6 +62,12 @@ func act(doors: Dictionary, graph: Dictionary, from: String, to: String, kind: S
 			if brace_mass_kg <= 0.0 or not is_finite(brace_mass_kg) or float(door.brace_kg) + brace_mass_kg > MAX_BRACE_KG:
 				return {"ok":false,"reason":"Нужна подходящая подпорка."}
 			door.brace_kg += brace_mass_kg
+		"clear_prop":
+			if brace_mass_kg<=0.0 or float(door.brace_kg)+0.00001<brace_mass_kg:
+				return {"ok":false,"reason":"Предмет не удерживает дверь."}
+			door.brace_kg = maxf(0.0,float(door.brace_kg)-brace_mass_kg)
+			door.damage_j = minf(float(door.damage_j),failure_energy(door,key))
+			return {"ok":true}
 		"unbrace":
 			if float(door.brace_kg) <= 0.0: return {"ok":false,"reason":"Подпорки нет."}
 			var removed: float = float(door.brace_kg)

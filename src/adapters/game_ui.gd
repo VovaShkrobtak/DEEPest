@@ -435,7 +435,7 @@ func _actions(parent: Node, categories: Array = []) -> void:
 		if not categories.is_empty() and category not in categories: continue
 		if not groups.has(category): groups[category] = []
 		groups[category].append(descriptor)
-	var titles: Dictionary = {"Мир":"НАБЛЮДАТЬ И ЖДАТЬ", "Опасность":"ПРИЗНАКИ ОПАСНОСТИ", "Путь":"ПЕРЕДВИЖЕНИЕ", "Ремесло":"РАБОТА И РЕМОНТ", "Вода и еда":"ПИТАНИЕ И ВОДА", "Убежище":"УКРЫТИЕ", "Тело":"ЗАБОТА О СЕБЕ", "Вещи":"СНАРЯЖЕНИЕ", "Люди":"ОБЩЕНИЕ"}
+	var titles: Dictionary = {"Мир":"НАБЛЮДАТЬ И ЖДАТЬ", "Опасность":"ПРИЗНАКИ ОПАСНОСТИ", "Путь":"ПЕРЕДВИЖЕНИЕ", "Ремесло":"РАБОТА И РЕМОНТ", "Вода и еда":"ПИТАНИЕ И ВОДА", "Убежище":"УКРЫТИЕ", "Тело":"ЗАБОТА О СЕБЕ", "Вещи":"СНАРЯЖЕНИЕ", "Предметы":"ОКРУЖАЮЩИЕ ПРЕДМЕТЫ", "Люди":"ОБЩЕНИЕ"}
 	for category: String in groups:
 		parent.add_child(_label(str(titles.get(category, category.to_upper())), 12, AMBER))
 		var grid := GridContainer.new()
@@ -486,7 +486,7 @@ func _items_page() -> void:
 	_entries(inventory.get("items", []), "В доступных карманах ничего не обнаружено.")
 	_entries(inventory.get("equipment", []), "")
 	page.add_child(_label("СНАРЯЖЕНИЕ, ПИТАНИЕ И РАБОТА", 12, AMBER))
-	_actions(page, ["Вещи", "Вода и еда", "Ремесло"])
+	_actions(page, ["Вещи", "Вода и еда", "Ремесло", "Предметы"])
 
 func _body_page() -> void:
 	var body: Dictionary = snapshot.get("body", {})
