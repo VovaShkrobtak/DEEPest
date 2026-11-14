@@ -119,18 +119,24 @@ func _build_shell() -> void:
 	var masthead := HBoxContainer.new()
 	root_column.add_child(masthead)
 	brand_label = _label("DEEPest", 27, INK)
+	brand_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	brand_label.clip_text = true
 	var brand: Label = brand_label
 	brand.add_theme_font_override("font", load("res://assets/fonts/OpenSans-Semibold.ttf"))
 	masthead.add_child(brand)
 	nav_toggle = _button("≡ Разделы", _toggle_navigation)
+	nav_toggle.autowrap_mode = TextServer.AUTOWRAP_OFF
 	nav_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
 	nav_toggle.custom_minimum_size.x = 48
 	masthead.add_child(nav_toggle)
 	status_toggle = _button("Состояние", _toggle_status)
+	status_toggle.autowrap_mode = TextServer.AUTOWRAP_OFF
 	status_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
 	status_toggle.custom_minimum_size.x = 48
 	masthead.add_child(status_toggle)
 	clock_label = _label("", 12, AMBER)
+	clock_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	clock_label.clip_text = true
 	clock_label.size_flags_horizontal = Control.SIZE_SHRINK_END
 	clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	masthead.add_child(clock_label)
