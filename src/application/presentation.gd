@@ -35,7 +35,7 @@ func build(snapshot: Dictionary, catalog: Array) -> Dictionary:
 			continue
 		var category: String = str(descriptor.get("category", ""))
 		# Disabled retreat buttons disclose proximity even when the player cannot perceive a threat.
-		if id == "retreat" and not alert:
+		if id in ["retreat","shove","break_grapple"] and not alert:
 			continue
 		if category == "Люди" and not people_visible:
 			continue
@@ -43,7 +43,7 @@ func build(snapshot: Dictionary, catalog: Array) -> Dictionary:
 		var safe: Dictionary = descriptor.duplicate(true)
 		safe["time_hint"] = _time_hint(id, float(descriptor.get("duration_s", 0.0)))
 		actions.append(safe)
-		if alert and (id == "retreat" or id == "listen" or id.begins_with("move:")) and bool(descriptor.get("enabled", false)):
+		if alert and (id in ["retreat","shove","break_grapple","listen"] or id.begins_with("move:")) and bool(descriptor.get("enabled", false)):
 			urgent.append(safe)
 	return {
 		"status": symptoms.slice(0, MAX_STATUS_LINES),

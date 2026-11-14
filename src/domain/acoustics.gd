@@ -64,6 +64,14 @@ func transmission_loss_db(source: String, listener: String, environment: Diction
 			# are more attenuated by a closed partition than low impacts.
 			var closed_loss: float = 21.0 if kind in ["footsteps", "shuffling", "voice", "breathing"] else (14.0 if kind in ["impact", "metal"] else 17.0)
 			loss += 4.0 if bool(room.get("window_open", false)) else (25.0 if bool(room.get("sealed", false)) else closed_loss)
+
+	# Portal loss supplements (not replaces) room envelope attenuation.
+	# The current world has one room per named place and no sub-room grid.
+	var doors: Dictionary = environment.get("doors",{})
+	for endpoint: String in [source,listener]:
+		var key: String = endpoint + "|yard" if endpoint < "yard" else "yard|" + endpoint
+		if doors.has(key) and not bool(doors[key].get("open",true)):
+			loss += 16.0
 	return loss
 
 func background_db(location: String, environment: Dictionary) -> float:

@@ -3,7 +3,8 @@ extends RefCounted
 ## Darkness, bodily condition and sound all limit what can be reported.
 func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictionary:
 	var body: Dictionary = state.get("body", {})
-	var surroundings: Dictionary = state.get("environment", {})
+	var surroundings: Dictionary = state.get("environment", {}).duplicate(false)
+	surroundings["doors"] = state.get("zombies",{}).get("doors",{})
 	var alive: bool = bool(body.get("alive", true))
 	var conscious: bool = bool(body.get("conscious", true))
 	var light: float = illumination(state, location)
@@ -34,18 +35,27 @@ func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictio
 		descriptions.append(str(record.get("text", "")))
 		if str(record.get("severity", "")) == "warning":
 			warnings.append(str(record.get("text", "")))
-	# Named infected agents are not inherently observable: only visible forms.
-	# More detailed occlusion needs sub-room geometry (not represented by the 7-node graph).
+
+	# Touch is a sensor. A physical grip remains perceivable in darkness,
+	# without granting knowledge of a target's identity or hidden statistics.
+	if alive and conscious:
+		for id: String in state.zombies.agents:
+			var agent: Dictionary = state.zombies.agents[id]
+			if str(agent.get("location","")) == location and float(agent.get("distance_m",INF)) <= 1.6 and float(agent.get("grapple_s",0.0)) > 0.0:
+				warnings.append("Чья-то хватка стягивает одежду; рука не свободна.")
+				break
+	# The observer sees posture, not AI state labels, stamina or exact wounds.
 	if visibility_m >= 1.0:
 		for id: String in state.zombies.agents:
 			var agent: Dictionary = state.zombies.agents[id]
 			if str(agent.get("location", "")) != location: continue
 			if float(agent.get("distance_m", INF)) > visibility_m: continue
-			var title: String = "Движущаяся фигура"
-			var detail: String = "В поле зрения появляется неровно движущийся силуэт. На таком расстоянии невозможно определить состояние человека."
+			var posture: String = str(agent.get("posture","upright"))
+			var title: String = "Силуэт на земле" if posture in ["fallen","crawling"] else "Движущаяся фигура"
+			var detail: String = "Кто-то упал и шевелится на земле. Личность неизвестна." if posture == "fallen" else ("Фигура медленно ползёт по земле." if posture == "crawling" else "В поле зрения неровно движущийся силуэт. Его состояние определить невозможно.")
 			visible.append({"title":title, "text":detail})
-			warnings.append("Вы замечаете движущуюся фигуру неподалёку.")
-			break # Do not reveal exact count or identity from coarse location model.
+			warnings.append("Вы замечаете фигуру на земле." if posture in ["fallen","crawling"] else "Вы замечаете движущуюся фигуру неподалёку.")
+			break
 	return {"visible":visible, "warnings":warnings, "description":descriptions, "sounds":sounds,
 		"light":light, "visual_range_m":visibility_m, "can_see":visibility_m >= 1.0,
 		"can_hear":conscious and alive and hearing_penalty_db < 55.0}
