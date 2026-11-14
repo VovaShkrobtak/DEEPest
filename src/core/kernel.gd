@@ -399,8 +399,9 @@ func export_state() -> Dictionary:
 func restore_state(data: Dictionary) -> Dictionary:
 	var upgraded: Dictionary = data.duplicate(true)
 	if not upgraded.has("zombies") and upgraded.has("seed") and (upgraded.seed is int or upgraded.seed is float):
-		upgraded.zombies = modules.zombies.initial_state(int(upgraded.seed))
-		upgraded.zombies.time_s = float(upgraded.get("time_s",0))
+		# Use a String key on insertion: the save validator rejects non-String keys.
+		upgraded["zombies"] = modules.zombies.initial_state(int(upgraded.seed))
+		upgraded["zombies"]["time_s"] = float(upgraded.get("time_s",0))
 	var reason: String = validate_state(upgraded)
 	if reason != "": return _result(false,reason)
 	_state = upgraded.duplicate(true)
