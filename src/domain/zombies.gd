@@ -36,7 +36,7 @@ func _new_agent(seed_value: int, index: int) -> Dictionary:
 		"last_stimulus_sequence":0, "rng_state":int((abs(seed_value) + 1 + (index+1)*57991) % (RNG_MOD-1)) + 1,
 		"stability":0.85, "fallen_s":0.0, "grapple_s":0.0,
 		"grapple_strength":0.0, "impact_cooldown_s":0.0,
-		"obstacle_delay_m":0.0, "search_origin":""}
+		"obstacle_delay_m":0.0, "obstacle_site":"", "search_origin":""}
 
 func migrate_state(saved: Dictionary) -> Dictionary:
 	# Legacy saves retain their original infected IDs, position, contact
@@ -243,7 +243,8 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 		return
 	var weather: Dictionary = environment.get("weather",{})
 	var obstacle: Dictionary = Navigation.OBSTACLES.get(str(a.location),{})
-	if not obstacle.is_empty() and a.posture == "upright" and float(a.distance_m) < 22.0:
+	if not obstacle.is_empty() and a.posture == "upright" and float(a.distance_m) < 22.0 and str(a.obstacle_site) != str(a.location):
+		a.obstacle_site = str(a.location)
 		var roll: float = _roll(a)
 		var risk: float = float(obstacle.fall_risk) * (1.0 + float(weather.get("rain",0.0)) * 1.5) * (1.35 - float(a.stability))
 		a.obstacle_delay_m = float(obstacle.detour_m)
@@ -278,6 +279,7 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 	# A genuine door or graph edge is traversed only after reaching its side.
 	var old_location: String = str(a.location)
 	a.location = destination
+	a.obstacle_site = ""
 	a.distance_m = maxf(0.1,float(graph[old_location].connections[destination]) - maxf(0.0,-remaining))
 	if a.mode == "obstructed": a.mode = "investigate"
 	events.append({"type":"infected_traverse","location":destination,"offset_m":float(a.distance_m)})
@@ -352,11 +354,12 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 		if not state.agents.has(id) or not state.agents[id] is Dictionary: return "Пропал постоянный заражённый."
 		var a: Dictionary = state.agents[id]
 		if a.size() != required[id].size(): return "Повреждена структура заражённого."
-		for field: String in ["location","target_location","mode","posture","search_origin"]:
+		for field: String in ["location","target_location","mode","posture","search_origin","obstacle_site"]:
 			if not a.get(field) is String: return "Неверный тип памяти заражённого."
 		if not graph.has(str(a.location)) or (str(a.target_location) != "" and not graph.has(str(a.target_location))):
 			return "Невозможная локация заражённого."
 		if str(a.search_origin) != "" and not graph.has(str(a.search_origin)): return "Неизвестное место поиска."
+		if str(a.obstacle_site) != "" and not graph.has(str(a.obstacle_site)): return "Неизвестное место препятствия."
 		if str(a.mode) not in MODES or str(a.posture) not in POSTURES: return "Недопустимая поза или решение заражённого."
 		for field: String in ["distance_m","alert_s","contact_cooldown_s","leg_integrity",
 				"tissue_integrity","hearing_threshold_db","memory_s","search_s",
