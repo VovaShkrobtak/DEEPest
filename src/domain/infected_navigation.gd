@@ -82,6 +82,7 @@ func strike(doors: Dictionary, a: String, b: String, impact_j: float) -> Diction
 		door.open = true
 		var released: float = float(door.brace_kg)
 		door.brace_kg = 0.0
+		door.damage_j = minf(float(door.damage_j),float(DOOR_LINKS[key].failure_j))
 		return {"ok":true,"breached":true,"released_kg":released}
 	return {"ok":true,"breached":false,"released_kg":0.0}
 
