@@ -565,6 +565,15 @@ func _perform(id: String, parameters: Dictionary = {}) -> void:
 	_refresh()
 	_flash_notice()
 
+func _live_notice(observation: Dictionary, fallback: String) -> String:
+	# Use the public observation only; no hidden threat coordinates or domain state.
+	var nearby: Array = observation.get("threat_warnings", [])
+	if not nearby.is_empty(): return "ВНИМАНИЕ · " + str(nearby[0])
+	for source in ["conditions", "body"]:
+		var warnings: Array = observation.get(source, {}).get("warnings", [])
+		if not warnings.is_empty(): return "САМОЧУВСТВИЕ / СРЕДА · " + str(warnings[0])
+	return fallback
+
 func _advance() -> void:
 	if kernel.snapshot().get("action", {}).is_empty():
 		action_timer.stop()
@@ -583,7 +592,7 @@ func _advance() -> void:
 		running_progress.value = float(snapshot.action.get("elapsed_s", 0))
 	if is_instance_valid(running_text):
 		running_text.text = "Время проходит. Работу можно прервать; затраты и изменения останутся."
-	notice.text = message
+	notice.text = _live_notice(snapshot, message)
 
 func _cancel() -> void:
 	var result: Dictionary = kernel.cancel()
