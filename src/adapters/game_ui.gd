@@ -3,12 +3,14 @@ extends Control
 const Kernel = preload("res://src/core/kernel.gd")
 const SaveStore = preload("res://src/adapters/save_store.gd")
 const Parser = preload("res://src/application/parser.gd")
+const Presentation = preload("res://src/application/presentation.gd")
 const INK = Color("e9e5da")
 const MUTED = Color("a1adae")
 const AMBER = Color("d6ae68")
 const BACKGROUND = Color("10191d")
 const CARD = Color("182328")
-const TABS = ["Мир", "Вещи", "Тело", "Люди", "Журнал", "Знания", "Настройки"]
+const TABS = ["Мир", "Действия", "Вещи", "Тело", "Люди", "Журнал", "Знания", "Настройки"]
+const QUICK_TABS = ["Мир", "Действия", "Вещи", "Тело"]
 var kernel = Kernel.new(1998)
 var save_store = SaveStore.new()
 var autosave_path: String = "user://autosave.json"
@@ -17,6 +19,12 @@ var autosave_protected: bool = false
 var keyboard_inset: int = 0
 var keyboard_poll: float = 0.0
 var parser = Parser.new()
+var presentation = Presentation.new()
+var view: Dictionary = {}
+var navigation_collapsed: bool = false
+var status_collapsed: bool = false
+var high_contrast: bool = false
+var mobile_menu_open: bool = false
 var snapshot: Dictionary = {}
 var selected_tab: String = "Мир"
 var text_scale: float = 1.0
@@ -36,11 +44,15 @@ var notice: Label
 var running_progress: ProgressBar
 var running_text: Label
 var action_panel: VBoxContainer
+var mobile_status: VBoxContainer
+var mobile_nav: HBoxContainer
+var mobile_selector: OptionButton
+var nav_toggle: Button
+var status_toggle: Button
 var action_timer: Timer
 var mobile: bool = false
 var rebuilding: bool = false
 var new_seed: int = 1998
-var goals_expanded: bool = false
 var settings_path: String = "user://interface.cfg"
 
 func _ready() -> void:
@@ -65,13 +77,13 @@ func _install_theme() -> void:
 	skin.default_font_size = int(16 * text_scale)
 	skin.set_color("font_color", "Label", INK)
 	skin.set_color("font_color", "Button", INK)
-	skin.set_color("font_disabled_color", "Button", Color("728086"))
+	skin.set_color("font_disabled_color", "Button", Color("a2b3b8") if high_contrast else Color("728086"))
 	skin.set_constant("separation", "VBoxContainer", 12)
 	skin.set_constant("separation", "HBoxContainer", 16)
 	for mode in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var style := StyleBoxFlat.new()
 		style.bg_color = Color("25343a") if mode == "hover" else CARD
-		style.border_color = AMBER if mode in ["pressed", "focus"] else Color("344247")
+		style.border_color = AMBER if mode in ["pressed", "focus"] else (Color("6a858d") if high_contrast else Color("344247"))
 		style.set_border_width_all(1)
 		style.set_corner_radius_all(5)
 		style.content_margin_left = 14
@@ -102,22 +114,40 @@ func _build_shell() -> void:
 	add_child(margin)
 	root_column = VBoxContainer.new()
 	margin.add_child(root_column)
+
 	var masthead := HBoxContainer.new()
 	root_column.add_child(masthead)
-	var brand := _label("DEEPest", 30, INK)
+	var brand := _label("DEEPest", 27, INK)
 	brand.add_theme_font_override("font", load("res://assets/fonts/OpenSans-Semibold.ttf"))
-	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	masthead.add_child(brand)
-	clock_label = _label("", 13, AMBER)
+	nav_toggle = _button("≡ Разделы", _toggle_navigation)
+	nav_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
+	nav_toggle.custom_minimum_size.x = 90
+	masthead.add_child(nav_toggle)
+	status_toggle = _button("Состояние", _toggle_status)
+	status_toggle.size_flags_horizontal = Control.SIZE_SHRINK_END
+	status_toggle.custom_minimum_size.x = 92
+	masthead.add_child(status_toggle)
+	clock_label = _label("", 12, AMBER)
+	clock_label.size_flags_horizontal = Control.SIZE_SHRINK_END
 	clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	masthead.add_child(clock_label)
-	root_column.add_child(_label("П О Л Е В О Й   Д Н Е В Н И К   /   З О М Б И - В Ы Ж И В А Н И Е", 10, MUTED))
+	root_column.add_child(_label("ПОЛЕВОЙ ДНЕВНИК  ·  ВЫЖИВАНИЕ БЕЗ СЮЖЕТА", 10, MUTED))
 	root_column.add_child(HSeparator.new())
+	mobile_selector = OptionButton.new()
+	mobile_selector.custom_minimum_size.y = 48
+	for tab in TABS: mobile_selector.add_item(tab)
+	mobile_selector.item_selected.connect(func(index: int): mobile_menu_open = false; _select_tab(TABS[index]))
+	root_column.add_child(mobile_selector)
+	mobile_status = VBoxContainer.new()
+	root_column.add_child(mobile_status)
+
+
 	layout = HBoxContainer.new()
 	layout.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root_column.add_child(layout)
 	navigation = VBoxContainer.new()
-	navigation.custom_minimum_size.x = 146
+	navigation.custom_minimum_size.x = 160
 	layout.add_child(navigation)
 	main_scroll = ScrollContainer.new()
 	main_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -128,7 +158,7 @@ func _build_shell() -> void:
 	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_scroll.add_child(page)
 	side = VBoxContainer.new()
-	side.custom_minimum_size.x = 236
+	side.custom_minimum_size.x = 248
 	layout.add_child(side)
 	notice = _label("", 13, AMBER)
 	root_column.add_child(notice)
@@ -144,13 +174,16 @@ func _build_shell() -> void:
 	submit_button.size_flags_horizontal = Control.SIZE_SHRINK_END
 	submit_button.custom_minimum_size.x = 56
 	command_row.add_child(submit_button)
+	mobile_nav = HBoxContainer.new()
+	mobile_nav.add_theme_constant_override("separation", 4)
+	root_column.add_child(mobile_nav)
 
 func _label(value: String, font_size: int = 16, color: Color = INK) -> Label:
 	var label := Label.new()
 	label.text = value
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", int(font_size * text_scale))
-	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_color", Color("d9e5e9") if high_contrast and color == MUTED else color)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return label
 
@@ -173,10 +206,13 @@ func _section(parent: Node, title: String, body: String = "") -> VBoxContainer:
 	var style := StyleBoxFlat.new()
 	style.bg_color = CARD
 	style.set_corner_radius_all(6)
-	style.content_margin_left = 18
-	style.content_margin_right = 18
-	style.content_margin_top = 16
-	style.content_margin_bottom = 18
+	style.content_margin_left = 12 if mobile else 18
+	style.content_margin_right = 12 if mobile else 18
+	style.content_margin_top = 12
+	style.content_margin_bottom = 14
+	if high_contrast:
+		style.set_border_width_all(1)
+		style.border_color = Color("526a72")
 	panel.add_theme_stylebox_override("panel", style)
 	parent.add_child(panel)
 	var box := VBoxContainer.new()
@@ -195,111 +231,155 @@ func _refresh() -> void:
 	else:
 		action_timer.stop()
 
+
 func _rebuild_content() -> void:
 	_clear(page)
 	_clear(side)
 	_clear(navigation)
+	_clear(mobile_status)
+	_clear(mobile_nav)
 	mobile = size.x < 980 or text_scale > 1.4
+	view = presentation.build(snapshot, kernel.available_actions())
 	for tab in TABS:
-		var tab_button := _button(("· " if tab == selected_tab else "") + tab, _select_tab.bind(tab))
-		if tab == selected_tab:
-			tab_button.add_theme_color_override("font_color", AMBER)
+		var tab_button := _button(("●  " if tab == selected_tab else "") + tab, _select_tab.bind(tab))
+		if tab == selected_tab: tab_button.add_theme_color_override("font_color", AMBER)
 		navigation.add_child(tab_button)
 	clock_label.text = "%s\n%s" % [snapshot.get("time_label", "08:00"), snapshot.get("date_label", "14 ноября 1998")]
 	notice.text = message
-	notice.max_lines_visible = 3 if mobile else 2
-	page.add_child(_label("ОКРЕСТНОСТИ / ДЕНЬ %s" % snapshot.get("day", 1), 11, MUTED))
-	page.add_child(_label(str(snapshot.get("location_title", "Неизвестное место")), 27, INK))
-	if mobile:
-		var weather: Dictionary = snapshot.get("conditions", {})
-		page.add_child(_label(str(weather.get("weather_label", "")) + " · " + str(weather.get("temp_label", "")), 12, MUTED))
-		var warnings: Array = snapshot.get("body", {}).get("warnings", []) + weather.get("warnings", [])
-		if not warnings.is_empty(): _section(page, "ОБРАТИТЕ ВНИМАНИЕ", "\n".join(warnings))
-	if not snapshot.get("threat_warnings", []).is_empty():
-		_section(page, "ПОБЛИЗОСТИ ОПАСНО", "\n".join(snapshot.get("threat_warnings", [])))
+	notice.max_lines_visible = 2
+	_build_mobile_status()
+	_build_mobile_navigation()
+	page.add_child(_label("МЕСТО / ДЕНЬ %s" % snapshot.get("day", 1), 11, MUTED))
+	page.add_child(_label(str(snapshot.get("location_title", "Неизвестное место")), 26, INK))
+	if view.get("threat_observed", false):
+		_render_signals(page, view.get("environment", []), true)
 	_terminal_banner()
 	if not snapshot.get("action", {}).is_empty(): _running_action()
-	if selected_tab == "Мир": _world_page()
-	elif selected_tab == "Вещи": _items_page()
-	elif selected_tab == "Тело": _body_page()
-	elif selected_tab == "Люди":
-		_entries(snapshot.get("people", []), "РЯДОМ НИКОГО НЕ ВИДНО")
-		_actions(page, ["Люди", "social"])
-	elif selected_tab == "Журнал": _journal_page()
-	elif selected_tab == "Знания": _knowledge_page()
-	elif selected_tab == "Настройки": _settings_page()
-	_build_conditions(page if mobile else side)
+	match selected_tab:
+		"Мир": _world_page()
+		"Действия": _actions_page()
+		"Вещи": _items_page()
+		"Тело": _body_page()
+		"Люди":
+			_entries(snapshot.get("people", []), str(view.get("people_empty", "Никого не видно.")))
+			_actions(page, ["Люди"])
+		"Журнал": _journal_page()
+		"Знания": _knowledge_page()
+		"Настройки": _settings_page()
+	_build_conditions(side)
 	_responsive()
+
+func _build_mobile_navigation() -> void:
+	for tab in QUICK_TABS:
+		var label_text: String = "● " + tab if selected_tab == tab else tab
+		var tab_button := _button(label_text, _select_tab.bind(tab))
+		tab_button.add_theme_font_size_override("font_size", int(12 * text_scale))
+		tab_button.custom_minimum_size.y = 52
+		mobile_nav.add_child(tab_button)
+	var more := _button("Ещё ▾", _toggle_mobile_menu)
+	more.add_theme_font_size_override("font_size", int(12 * text_scale))
+	more.custom_minimum_size.y = 52
+	mobile_nav.add_child(more)
+
+func _build_mobile_status() -> void:
+	if status_collapsed: return
+	var warnings: Array = view.get("status", [])
+	var lines: Array[String] = []
+	for record: Dictionary in warnings.slice(0, 2):
+		lines.append(str(record.get("text", "")))
+	if lines.is_empty(): lines.append(str(view.get("no_symptoms", "")))
+	var box := _section(mobile_status, "ВАШИ ОЩУЩЕНИЯ", "\n".join(lines))
+	if int(view.get("status_more", 0)) > 0 or warnings.size() > 2:
+		box.add_child(_button("Открыть состояние →", _select_tab.bind("Тело")))
+
+func _toggle_navigation() -> void:
+	if mobile:
+		_toggle_mobile_menu()
+	else:
+		navigation_collapsed = not navigation_collapsed
+		_save_settings()
+		_responsive()
+
+func _toggle_mobile_menu() -> void:
+	mobile_menu_open = not mobile_menu_open
+	_responsive()
+
+func _toggle_status() -> void:
+	status_collapsed = not status_collapsed
+	_save_settings()
+	_rebuild_content()
+
+func _render_signals(parent: Node, signals: Array, only_danger: bool = false) -> void:
+	if signals.is_empty(): return
+	var selected: Array[String] = []
+	for signal: Dictionary in signals:
+		if only_danger and str(signal.get("severity", "")) != "danger": continue
+		selected.append(str(signal.get("text", "")))
+	if not selected.is_empty():
+		_section(parent, "ВАШЕ ВНИМАНИЕ" if only_danger else "ВОСПРИЯТИЕ", "\n".join(selected))
+
 
 func _select_tab(tab: String) -> void:
 	selected_tab = tab
 	main_scroll.scroll_vertical = 0
 	_rebuild_content()
 
+
 func _world_page() -> void:
-	var description := "\n".join(snapshot.get("description", []))
-	_section(page, "ЗДЕСЬ И СЕЙЧАС", description)
-	var goals: Array = snapshot.get("goals", [])
-	if not goals.is_empty():
-		var completed: int = 0
-		var next_goal: String = "Все начальные ориентиры выполнены."
-		for goal: Dictionary in goals:
-			if goal.get("done", false): completed += 1
-		for goal: Dictionary in goals:
-			if not goal.get("done", false):
-				next_goal = str(goal.get("title", ""))
-				break
-		if mobile and not goals_expanded:
-			var compact := _button("Ориентиры %d/%d · %s ↓" % [completed, goals.size(), next_goal], func(): goals_expanded = true; _rebuild_content())
-			compact.add_theme_font_size_override("font_size", int(12 * text_scale))
-			page.add_child(compact)
-		else:
-			var box := _section(page, "ПЕРВЫЕ ОРИЕНТИРЫ · %d / %d" % [completed, goals.size()])
-			if goals_expanded:
-				for goal: Dictionary in goals:
-					box.add_child(_label(("✓  " if goal.get("done", false) else "○  ") + str(goal.get("title", "")), 14, MUTED if goal.get("done", false) else INK))
-			else:
-				box.add_child(_label("○  " + next_goal, 14))
-			var toggle := _button("Свернуть ориентиры" if goals_expanded else "Все ориентиры ↓", func(): goals_expanded = not goals_expanded; _rebuild_content())
-			toggle.add_theme_font_size_override("font_size", int(12 * text_scale))
-			box.add_child(toggle)
-	page.add_child(_label("ВАШ СЛЕДУЮЩИЙ ШАГ", 12, AMBER))
-	_actions(page)
+	_section(page, "ЗДЕСЬ И СЕЙЧАС", "\n".join(snapshot.get("description", [])))
+	if not view.get("urgent_actions", []).is_empty():
+		_section(page, "НЕМЕДЛЕННЫЕ ВОЗМОЖНОСТИ", "Доступные варианты основаны на замеченных признаках, а не на скрытом положении угроз.")
+		for action: Dictionary in view.get("urgent_actions", []):
+			_action_card(page, action)
+	var main: Array = []
+	for descriptor: Dictionary in view.get("actions", []):
+		if str(descriptor.id) in ["inspect", "listen", "drink", "bandage"] and bool(descriptor.get("enabled", false)):
+			main.append(descriptor)
+	for descriptor: Dictionary in main.slice(0, 4):
+		_action_card(page, descriptor)
+	page.add_child(_button("Все действия и взаимодействия →", _select_tab.bind("Действия")))
 	if not snapshot.get("objects", []).is_empty():
-		page.add_child(_label("ПРИМЕТЫ МЕСТА", 12, MUTED))
-		_entries(snapshot.objects, "")
+		page.add_child(_label("ЗАМЕЧЕННЫЕ ДЕТАЛИ", 12, MUTED))
+		_entries(snapshot.get("objects", []), "")
+
+func _actions_page() -> void:
+	_section(page, "ЧТО МОЖНО СДЕЛАТЬ", "Доступность проверяет симуляция при выборе. Время и трудность ниже — приблизительная оценка, не гарантия исхода.")
+	_actions(page)
 
 func _actions(parent: Node, categories: Array = []) -> void:
 	if not snapshot.get("alive", true): return
 	var groups: Dictionary = {}
-	for action: Dictionary in kernel.available_actions():
-		if not snapshot.get("conscious", true) and str(action.id).get_slice(":", 0) != "wait": continue
-		var category: String = str(action.get("category", "other"))
-		if not categories.is_empty() and not category in categories: continue
+	for descriptor: Dictionary in view.get("actions", []):
+		if not snapshot.get("conscious", true) and str(descriptor.id) != "wait": continue
+		var category: String = str(descriptor.get("category", "Прочее"))
+		if not categories.is_empty() and category not in categories: continue
 		if not groups.has(category): groups[category] = []
-		groups[category].append(action)
-	var titles: Dictionary = {"inspect": "НАБЛЮДЕНИЕ", "observation": "НАБЛЮДЕНИЕ", "world": "ВОКРУГ ВАС", "travel": "МАРШРУТЫ", "move": "МАРШРУТЫ", "movement": "МАРШРУТЫ", "body": "ЗАБОТА О СЕБЕ", "care": "ЗАБОТА О СЕБЕ", "rest": "ОТДЫХ", "water": "ВОДА", "food": "ЕДА", "items": "ВЕЩИ", "inventory": "ВЕЩИ", "equipment": "СНАРЯЖЕНИЕ", "social": "ЛЮДИ", "craft": "РАБОТА", "crafting": "РАБОТА", "shelter": "УБЕЖИЩЕ", "fire": "ТЕПЛО И ОГОНЬ", "other": "ДОСТУПНЫЕ ДЕЙСТВИЯ"}
+		groups[category].append(descriptor)
+	var titles: Dictionary = {"Мир":"НАБЛЮДАТЬ И ЖДАТЬ", "Опасность":"ПРИЗНАКИ ОПАСНОСТИ", "Путь":"ПЕРЕДВИЖЕНИЕ", "Ремесло":"РАБОТА И РЕМОНТ", "Вода и еда":"ПИТАНИЕ И ВОДА", "Убежище":"УКРЫТИЕ", "Тело":"ЗАБОТА О СЕБЕ", "Вещи":"СНАРЯЖЕНИЕ", "Люди":"ОБЩЕНИЕ"}
 	for category: String in groups:
-		parent.add_child(_label(str(titles.get(category, category.to_upper())), 11, MUTED))
+		parent.add_child(_label(str(titles.get(category, category.to_upper())), 12, AMBER))
 		var grid := GridContainer.new()
 		grid.columns = 1 if mobile else 2
 		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_theme_constant_override("h_separation", 12)
 		grid.add_theme_constant_override("v_separation", 12)
 		parent.add_child(grid)
-		for action: Dictionary in groups[category]:
-			var duration: float = float(action.get("duration_s", 0))
-			var caption: String = str(action.get("title", action.id))
-			if duration > 0: caption += "  ·  " + _duration(duration)
-			var button := _button(caption, _perform.bind(str(action.id), action.get("parameters", {})))
-			button.set_meta("action_id", action.id)
-			button.disabled = not action.get("enabled", true)
-			var card := VBoxContainer.new()
-			card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			grid.add_child(card)
-			card.add_child(button)
-			var detail: String = str(action.get("description", "")) if not button.disabled else str(action.get("reason", "Сейчас недоступно"))
-			if not detail.is_empty(): card.add_child(_label(detail, 12, MUTED))
+		for descriptor: Dictionary in groups[category]:
+			_action_card(grid, descriptor)
+
+func _action_card(parent: Node, descriptor: Dictionary) -> void:
+	var card := VBoxContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(card)
+	var button := _button(str(descriptor.get("title", descriptor.get("id", ""))), _perform.bind(str(descriptor.id), descriptor.get("parameters", {})))
+	button.set_meta("action_id", descriptor.id)
+	button.disabled = not bool(descriptor.get("enabled", true))
+	card.add_child(button)
+	var time_hint: String = str(descriptor.get("time_hint", ""))
+	var detail: String = str(descriptor.get("description", "")) if not button.disabled else str(descriptor.get("reason", "Сейчас недоступно"))
+	var commentary: String = time_hint + (" · " if not time_hint.is_empty() and not detail.is_empty() else "") + detail
+	if not commentary.is_empty(): card.add_child(_label(commentary, 12, MUTED))
+
 
 func _duration(seconds: float) -> String:
 	if seconds < 60: return "%d с" % int(seconds)
@@ -319,19 +399,28 @@ func _running_action() -> void:
 	box.add_child(running_text)
 	box.add_child(_button("Прервать действие", _cancel))
 
+
 func _items_page() -> void:
 	var inventory: Dictionary = snapshot.get("inventory", {})
 	_section(page, "С СОБОЙ", str(inventory.get("load_text", "")) + "\n" + str(inventory.get("water_text", "")))
-	_entries(inventory.get("items", []), "Вещей не видно")
+	_entries(inventory.get("items", []), "В доступных карманах ничего не обнаружено.")
 	_entries(inventory.get("equipment", []), "")
-	page.add_child(_label("ДЕЙСТВИЯ С ВЕЩАМИ", 12, AMBER))
-	_actions(page, ["items", "inventory", "water", "food", "equipment", "Вещи", "Вода и еда", "Ремесло"])
+	page.add_child(_label("СНАРЯЖЕНИЕ, ПИТАНИЕ И РАБОТА", 12, AMBER))
+	_actions(page, ["Вещи", "Вода и еда", "Ремесло"])
 
 func _body_page() -> void:
 	var body: Dictionary = snapshot.get("body", {})
-	_section(page, "ОЩУЩЕНИЯ", "\n".join(body.get("sensations", [])))
+	_section(page, "САМООЩУЩЕНИЕ", str(body.get("condition", "Вы прислушиваетесь к себе.")))
+	_render_signals(page, view.get("status", []))
+	if view.get("status", []).is_empty(): _section(page, "ОЩУЩЕНИЯ", str(view.get("no_symptoms", "")))
+	if int(view.get("status_more", 0)) > 0:
+		for sensation in body.get("sensations", []):
+			page.add_child(_label(str(sensation), 14))
+		for warning in body.get("warnings", []):
+			page.add_child(_label(str(warning), 14, AMBER))
 	_entries(body.get("details", []), "")
-	_actions(page, ["body", "rest", "care", "Тело"])
+	_actions(page, ["Тело"])
+
 
 func _entries(entries: Array, empty: String) -> void:
 	if entries.is_empty() and not empty.is_empty(): _section(page, empty)
@@ -354,16 +443,20 @@ func _knowledge_page() -> void:
 	_section(page, "ЗАРАЖЁННЫЕ", "Шум может привлечь заражённых, но они не знают, где вы, без признаков присутствия. Прислушивайтесь, следите за обстановкой и выбирайте момент для работы. Отступление занимает время.")
 	_section(page, "СВОБОДНЫЙ ВВОД", "Введите название доступного действия, например «осмотреться». Если команда неясна, мир останется на месте. Все действия доступны и через кнопки.")
 
+
 func _build_conditions(parent: Node) -> void:
-	var conditions: Dictionary = snapshot.get("conditions", {})
-	var box := _section(parent, "УСЛОВИЯ", str(conditions.get("weather_label", "")) + "\n" + str(conditions.get("temp_label", "")))
-	box.add_child(_label("Время идёт только при действии", 12, MUTED))
-	var body: Dictionary = snapshot.get("body", {})
-	var senses := _section(parent, "САМОЧУВСТВИЕ", "\n".join(body.get("sensations", [])))
-	for warning in body.get("warnings", []) + conditions.get("warnings", []) + snapshot.get("threat_warnings", []): senses.add_child(_label(str(warning), 13, AMBER))
+	var box := _section(parent, "УСЛОВИЯ", str(snapshot.get("conditions", {}).get("weather_label", "")) + "\n" + str(snapshot.get("conditions", {}).get("temp_label", "")))
+	box.add_child(_label("Время проходит при игровых действиях", 12, MUTED))
+	var symptoms: Array = view.get("status", [])
+	var senses := _section(parent, "ВАШИ ОЩУЩЕНИЯ", str(view.get("no_symptoms", "")) if symptoms.is_empty() else "")
+	for record: Dictionary in symptoms:
+		senses.add_child(_label(str(record.get("text", "")), 13, AMBER if record.get("severity", "") == "warning" else INK))
+	if int(view.get("status_more", 0)) > 0:
+		senses.add_child(_button("Все ощущения →", _select_tab.bind("Тело")))
 	var inv: Dictionary = snapshot.get("inventory", {})
-	_section(parent, "ЗАПАСЫ", str(inv.get("water_text", "")) + "\n" + str(inv.get("load_text", "")))
-	parent.add_child(_label("БЕЗ СЕТИ · НЕТ ФИНАЛЬНОЙ ЦЕЛИ\nСЕВЕРНАЯ ПРОВИНЦИЯ, 1998", 10, MUTED))
+	_section(parent, "С СОБОЙ", str(inv.get("water_text", "")) + "\n" + str(inv.get("load_text", "")))
+	parent.add_child(_label("ОФЛАЙН · БЕЗ КВЕСТОВ\nСЕВЕРНАЯ ПРОВИНЦИЯ, 1998", 10, MUTED))
+
 
 func _settings_page() -> void:
 	_section(page, "ВАШ ДНЕВНИК", "Сохранение включает мир, вещи и незавершённое действие.")
@@ -381,6 +474,12 @@ func _settings_page() -> void:
 	var box := _section(page, "ЧИТАЕМОСТЬ", "Размер текста: %d%%" % int(text_scale * 100))
 	for scale_value in [1.0, 1.25, 1.5, 2.0]:
 		box.add_child(_button("%d%%" % int(scale_value * 100), _set_scale.bind(scale_value)))
+	var contrast := CheckButton.new()
+	contrast.text = "Высокий контраст"
+	contrast.button_pressed = high_contrast
+	contrast.custom_minimum_size.y = 48
+	contrast.toggled.connect(_set_contrast)
+	box.add_child(contrast)
 	var motion := CheckButton.new()
 	motion.text = "Сокращённое движение"
 	motion.button_pressed = reduced_motion
@@ -394,6 +493,9 @@ func _settings_page() -> void:
 	portrait_toggle.custom_minimum_size.y = 48
 	portrait_toggle.toggled.connect(_set_portrait_mode)
 	orientation.add_child(portrait_toggle)
+	var panels := _section(page, "ПАНЕЛИ", "На компьютере панели разделов и ощущений скрываются независимо. На телефоне вкладки расположены у нижнего края.")
+	panels.add_child(_button("Сбросить расположение панелей", _reset_panels))
+	_section(page, "УПРАВЛЕНИЕ", "Ctrl + 1…8 — открыть вкладку. Esc — закрыть мобильный список разделов. Командная строка работает полностью офлайн.")
 	page.add_child(_button("Диагностика разработчика", _toggle_debug))
 	if debug_visible:
 		_section(page, "DEBUG · СКРЫТЫЕ ДАННЫЕ МОДЕЛИ", JSON.stringify(kernel.debug_snapshot(), "  "))
@@ -468,6 +570,19 @@ func _confirm_new() -> void:
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(mini(480, int(size.x) - 32), 220))
 
+func _set_contrast(value: bool) -> void:
+	high_contrast = value
+	_install_theme()
+	_save_settings()
+	_rebuild_content()
+
+func _reset_panels() -> void:
+	navigation_collapsed = false
+	status_collapsed = false
+	mobile_menu_open = false
+	_save_settings()
+	_rebuild_content()
+
 func _set_scale(value: float) -> void:
 	text_scale = value
 	_install_theme()
@@ -494,6 +609,9 @@ func _save_settings() -> void:
 	config.set_value("interface", "text_scale", text_scale)
 	config.set_value("interface", "reduced_motion", reduced_motion)
 	config.set_value("interface", "portrait_mode", portrait_mode)
+	config.set_value("interface", "navigation_collapsed", navigation_collapsed)
+	config.set_value("interface", "status_collapsed", status_collapsed)
+	config.set_value("interface", "high_contrast", high_contrast)
 	config.save(settings_path)
 
 func _load_settings() -> void:
@@ -502,6 +620,9 @@ func _load_settings() -> void:
 		text_scale = clampf(float(config.get_value("interface", "text_scale", 1.0)), 1.0, 2.0)
 		reduced_motion = bool(config.get_value("interface", "reduced_motion", true))
 		portrait_mode = bool(config.get_value("interface", "portrait_mode", false))
+		navigation_collapsed = bool(config.get_value("interface", "navigation_collapsed", false))
+		status_collapsed = bool(config.get_value("interface", "status_collapsed", false))
+		high_contrast = bool(config.get_value("interface", "high_contrast", false))
 
 func _update_design_scale() -> void:
 	# Portrait mode has its own logical design size: landscape 1280x720 would
@@ -512,6 +633,7 @@ func _update_design_scale() -> void:
 	if window.content_scale_size != desired:
 		window.content_scale_size = desired
 
+
 func _responsive() -> void:
 	_update_design_scale()
 	if not is_instance_valid(navigation) or rebuilding: return
@@ -521,22 +643,16 @@ func _responsive() -> void:
 		mobile = should_mobile
 		_rebuild_content()
 		rebuilding = false
-	# Mobile navigation is a compact dropdown, leaving the reading column full width.
-	navigation.visible = not mobile
-	side.visible = not mobile
-	var selector = root_column.get_node_or_null("MobileNavigation")
-	if mobile and selector == null:
-		var dropdown := OptionButton.new()
-		dropdown.name = "MobileNavigation"
-		dropdown.custom_minimum_size.y = 48
-		for tab in TABS: dropdown.add_item(tab)
-		dropdown.item_selected.connect(func(index: int): _select_tab(TABS[index]))
-		root_column.add_child(dropdown)
-		root_column.move_child(dropdown, 3)
-		selector = dropdown
-	if selector != null:
-		selector.visible = mobile
-		selector.select(TABS.find(selected_tab))
+	navigation.visible = not mobile and not navigation_collapsed
+	side.visible = not mobile and not status_collapsed
+	mobile_status.visible = mobile and not status_collapsed
+	mobile_nav.visible = mobile
+	mobile_selector.visible = mobile and mobile_menu_open
+	if mobile_selector.visible:
+		mobile_selector.select(TABS.find(selected_tab))
+	nav_toggle.text = "≡ Разделы" if mobile or navigation_collapsed else "◀ Разделы"
+	status_toggle.text = "◉ Состояние" if status_collapsed else "◌ Скрыть"
+
 
 func _terminal_banner() -> void:
 	var box: VBoxContainer
@@ -577,6 +693,19 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
 		_autosave()
 		get_tree().quit()
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not event is InputEventKey: return
+	if not event.pressed or event.echo: return
+	if event.keycode == KEY_ESCAPE and mobile_menu_open:
+		mobile_menu_open = false
+		_responsive()
+		get_viewport().set_input_as_handled()
+	elif event.ctrl_pressed or event.meta_pressed:
+		var index: int = int(event.keycode) - KEY_1
+		if index >= 0 and index < TABS.size():
+			_select_tab(TABS[index])
+			get_viewport().set_input_as_handled()
 
 func _process(delta: float) -> void:
 	keyboard_poll += delta
