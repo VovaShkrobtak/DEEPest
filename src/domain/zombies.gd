@@ -115,7 +115,9 @@ func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 			state.contacts += 1
 			events.append({"type":"infected_contact","location":player_location,
 				"text":"Чужие пальцы цепляются за одежду. Вырываясь, вы чувствуете резкую боль в руке.",
-				"wound_m2":0.00004,"bleeding_kg_s":0.0000007,"contamination":0.015})
+				"wound_m2":0.00004,"bleeding_kg_s":0.0000007,"contamination":0.015,
+				"part":"left_arm" if int(state.contacts) % 2 == 1 else "right_arm",
+				"tissue_damage":{"skin":0.018,"muscle":0.009,"nerve":0.003}})
 	state.time_s += dt
 	return events
 

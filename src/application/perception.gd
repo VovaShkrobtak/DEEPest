@@ -7,12 +7,13 @@ func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictio
 	var alive: bool = bool(body.get("alive", true))
 	var conscious: bool = bool(body.get("conscious", true))
 	var light: float = illumination(state, location)
-	var vision_quality: float = 1.0
+	var abilities: Dictionary = modules.physiology.capabilities(body)
+	var vision_quality: float = float(abilities.get("vision",1.0))
 	if float(body.get("blood_kg", 5.0)) < 4.0: vision_quality *= 0.55
 	if float(body.get("toxin", 0.0)) > 0.3: vision_quality *= 0.7
 	if float(body.get("fatigue", 0.0)) > 0.8: vision_quality *= 0.75
 	var visibility_m: float = 75.0 * light * vision_quality if alive and conscious else 0.0
-	var hearing_penalty_db: float = 0.0
+	var hearing_penalty_db: float = float(abilities.get("hearing_loss_db",0.0))
 	if float(body.get("blood_kg", 5.0)) < 4.0: hearing_penalty_db += 8.0
 	if float(body.get("hypoxia_s", 0.0)) > 40.0: hearing_penalty_db += 9.0
 	if float(body.get("fatigue", 0.0)) > 0.7: hearing_penalty_db += 4.0

@@ -24,9 +24,17 @@ func initial_state(seed_value: int = 1998) -> Dictionary:
 
 func _npc(title: String, home: String, trust: float, food: float, cloth: float) -> Dictionary:
 	var body: Dictionary = physiology.initial_state()
-	body.wound_m2 = 0.00015 if home == "clinic" else 0.0
-	body.bleeding_kg_s = 0.0000005 if home == "clinic" else 0.0
+	body.anatomy = physiology.anatomy.initial_state(false)
+	body.wound_m2 = 0.0
+	body.bleeding_kg_s = 0.0
+	body.bandaged = false
 	body.infection = 0.0
+	if home == "clinic":
+		physiology.apply(body, {"kind":"trauma","part":"left_arm",
+			"wound_m2":0.00015,"bleeding_kg_s":0.0000005,
+			"tissue_damage":{"skin":0.012}})
+		body.anatomy.adrenaline = 0.0
+		body.stress = 0.22
 	body.clothing_water_kg = 0.0
 	return {"body":body,"title":title,"home":home,"location":home,"destination":"","travel_s":0.0,"trust":trust,"food":food,"cloth":cloth,"water_kg":0.35,"water_consumed_kg":0.0,"food_consumed":0.0,"needs":{"thirst":0.0,"hunger":0.0,"cold":0.0},"plan":"rest","memory":[],"helped":false}
 
