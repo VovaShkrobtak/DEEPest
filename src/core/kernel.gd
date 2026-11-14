@@ -37,8 +37,14 @@ func _trace(type: String, payload: Dictionary) -> void:
 		_state.trace.pop_front()
 
 func _action(id: String, title: String, seconds: int, description: String, category: String = "Действия", params: Dictionary = {}) -> Dictionary:
+
 	var reason: String = _validate(id, params)
-	return {"id":id,"title":title,"description":description,"duration_s":seconds,"enabled":reason.is_empty(),"reason":reason,"category":category,"parameters":params.duplicate(true)}
+	var factor: float = 1.0 if _base(id) == "move" else clampf(modules.physiology.action_efficiency(_state.body, _base(id)), 0.30, 1.0)
+	var actual_seconds: int = maxi(seconds, ceili(float(seconds) / factor))
+	return {"id":id,"title":title,"description":description,"duration_s":actual_seconds,
+		"base_duration_s":seconds,"ability_factor":factor,
+		"enabled":reason.is_empty(),"reason":reason,"category":category,"parameters":params.duplicate(true)}
+
 
 func available_actions() -> Array:
 	var out: Array = []
@@ -49,7 +55,8 @@ func available_actions() -> Array:
 	for target: String in graph[_state.location].connections:
 		var distance: float = graph[_state.location].connections[target]
 		var load_kg: float = modules.items.mass_kg(_state.items)
-		var speed: float = 1.2 / (1.0 + load_kg / 35.0 + float(_state.body.fatigue) * 0.6)
+		var mobility: float = maxf(0.12, float(modules.physiology.capabilities(_state.body).mobility))
+		var speed: float = 1.2 * mobility / (1.0 + load_kg / 35.0 + float(_state.body.fatigue) * 0.6)
 		out.append(_action("move:" + target, "Куда: " + str(graph[target].title), maxi(30,ceili(distance / speed)),"%d м по сельской дороге. По пути вы несёте весь груз." % int(distance),"Путь",{"target":target}))
 	if _state.environment.rooms.has(_state.location):
 		out.append(_action("clean_chimney","Проверить и очистить дымоход",600,"Улучшить тягу перед растопкой. Нужен инструмент.","Убежище"))
@@ -111,6 +118,8 @@ func _validate(id: String, arguments: Dictionary) -> String:
 	if not _state.action.is_empty(): return "Сначала завершите или прервите текущее действие."
 	if not _state.body.alive: return "Персонаж погиб. Можно начать новое выживание."
 	if not _state.body.conscious and verb != "wait": return "Вы без сознания. Можно дать времени пройти."
+	var functional_block: String = modules.physiology.action_limit(_state.body, verb)
+	if not functional_block.is_empty(): return functional_block
 	match verb:
 		"move":
 			return "Нет прямого пути. Сначала выйдите во двор." if not modules.world.locations()[_state.location].connections.has(str(args.get("target",""))) else ""
@@ -212,7 +221,12 @@ func submit(command_value: RefCounted) -> Dictionary:
 		if id == "move": return self.command("move:" + str(params.get("target","")),params)
 		if id in ["talk","share_food","trade"]: return self.command(id + ":" + str(params.get("npc_id","")),params)
 		return _result(false,"Такого действия сейчас нет рядом.")
-	_state.action = {"id":descriptor.id,"title":descriptor.title,"elapsed_s":int(_state.work_progress.get(_work_key(descriptor.id,_state.location),0)),"duration_s":int(descriptor.duration_s),"parameters":params,"start_location":_state.location}
+	var previous_progress: int = int(_state.work_progress.get(_work_key(descriptor.id,_state.location), 0))
+	_state.action = {"id":descriptor.id,"title":descriptor.title,
+		"elapsed_s":mini(previous_progress, int(descriptor.duration_s) - 1),
+		"duration_s":int(descriptor.duration_s), "base_duration_s":int(descriptor.base_duration_s),
+		"ability_factor":float(descriptor.ability_factor), "parameters":params,
+		"start_location":_state.location}
 	_state.revision += 1
 	_state.action_log.append({"time_s":_state.time_s,"id":descriptor.id,"parameters":params.duplicate(true)})
 	# Bounded replay window. Full archival replay persistence remains documented.
@@ -269,6 +283,10 @@ func step(seconds: float) -> Dictionary:
 		_state.revision += 1
 		if not _state.body.alive or (not _state.body.conscious and verb != "wait"):
 			_log("danger","Действие прервано: " + ("вы потеряли сознание." if _state.body.alive else "жизненные функции угасли."))
+			_state.action = {}
+		elif not modules.physiology.action_limit(_state.body, verb).is_empty():
+			if verb in WORK_IDS: _state.work_progress[_work_key(action.id,action.start_location)] = int(action.elapsed_s)
+			_log("interrupted", "Работа или движение прерваны: тело не позволяет их продолжать. Потраченное время и травмы сохраняются.")
 			_state.action = {}
 		elif verb == "sleep" and (float(air.smoke) > 0.15 or float(_state.body.core_k) < 307.0):
 			_log("danger","Вы просыпаетесь от холода или тяжёлого воздуха. Сон прерван; время уже прошло.")
@@ -471,6 +489,13 @@ func restore_state(data: Dictionary) -> Dictionary:
 	if not upgraded.has("acoustics") and upgraded.has("time_s"):
 		upgraded["acoustics"] = modules.acoustics.initial_state()
 		upgraded["acoustics"]["time_s"] = float(upgraded.get("time_s", 0))
+
+	if upgraded.has("body") and upgraded.body is Dictionary and not upgraded.body.has("anatomy"):
+		upgraded.body["anatomy"] = _legacy_anatomy(upgraded.body)
+	if upgraded.has("world") and upgraded.world is Dictionary and upgraded.world.get("npcs") is Dictionary:
+		for npc_id: String in upgraded.world.npcs:
+			var old_body: Dictionary = upgraded.world.npcs[npc_id].get("body", {})
+			if not old_body.has("anatomy"): old_body["anatomy"] = _legacy_anatomy(old_body)
 	var reason: String = validate_state(upgraded)
 	if reason != "": return _result(false,reason)
 	_state = upgraded.duplicate(true)
@@ -478,6 +503,21 @@ func restore_state(data: Dictionary) -> Dictionary:
 	_state.goals = []
 	_state.won = false
 	return _result(true,"Сохранение загружено.")
+
+func _legacy_anatomy(body: Dictionary) -> Dictionary:
+	var layer: Dictionary = modules.physiology.anatomy.initial_state(false)
+	var old_area: float = float(body.get("wound_m2", 0.0))
+	if old_area > 0.0:
+		modules.physiology.anatomy.injure(layer, {
+			"part":"left_arm",
+			"wound_m2":minf(0.2, maxf(0.0, old_area)),
+			"bleeding_kg_s":clampf(float(body.get("bleeding_kg_s",0.0)),0.0,0.02),
+			"contamination":clampf(float(body.get("infection",0.0)),0.0,1.0)})
+		if bool(body.get("bandaged",false)):
+			modules.physiology.anatomy.treat(layer, "bandage", "left_arm")
+	layer.adrenaline = 0.0
+	layer.pain_felt = layer.pain_raw
+	return layer
 
 func validate_state(data: Dictionary) -> String:
 	if data.get("schema_version",0) != 1 or data.get("build","") != BUILD or data.get("content_hash","") != CONTENT_HASH: return "Несовместимая версия сохранения или контента."
@@ -518,12 +558,17 @@ func validate_state(data: Dictionary) -> String:
 		var npc: Dictionary = data.world.npcs[npc_id]
 		if not graph.has(npc.location) or (npc.destination != "" and not graph[npc.location].connections.has(npc.destination)): return "Неизвестный маршрут NPC."
 		if npc.trust > 1.0 or npc.travel_s > 100000.0: return "Недопустимое состояние NPC."
+	var injury_reason: String = modules.physiology.anatomy.validate_state(data.body.anatomy)
+	if injury_reason != "": return injury_reason
+	for npc_id: String in data.world.npcs:
+		injury_reason = modules.physiology.anatomy.validate_state(data.world.npcs[npc_id].body.anatomy)
+		if injury_reason != "": return injury_reason
 	if not data.action.is_empty():
 		var reason: String = _validate_saved_action(data.action,data.location,graph)
 		if reason != "": return reason
 	for id: String in data.work_progress:
 		var job: PackedStringArray = id.split("@")
-		if job.size() != 2 or not job[0] in WORK_IDS or (not graph.has(job[1]) and job[1] != "player") or not _whole(data.work_progress[id]) or data.work_progress[id] >= _duration(job[0]) or data.work_progress[id] < 0: return "Некорректный прогресс работы."
+		if job.size() != 2 or not job[0] in WORK_IDS or (not graph.has(job[1]) and job[1] != "player") or not _whole(data.work_progress[id]) or data.work_progress[id] >= _duration(job[0]) * 4 or data.work_progress[id] < 0: return "Некорректный прогресс работы."
 	for entry: Variant in data.journal:
 		if not entry is Dictionary or not entry.get("text") is String or not entry.get("type") is String or not _whole(entry.get("time_s")) or not entry.get("location") is String: return "Повреждена запись журнала."
 	return ""
@@ -541,13 +586,21 @@ func _validate_saved_action(action: Dictionary, location: String, graph: Diction
 	if not _whole(action.elapsed_s) or not _whole(action.duration_s) or action.elapsed_s < 0 or action.duration_s <= action.elapsed_s or action.duration_s > 86400: return "Недопустимый прогресс действия."
 	if action.start_location != location: return "Работа относится к другому месту."
 	var verb: String = _base(action.id)
+	if action.has("base_duration_s") or action.has("ability_factor"):
+		if not _whole(action.get("base_duration_s")) or not (action.get("ability_factor") is float or action.get("ability_factor") is int):
+			return "Повреждены параметры длительности действия."
+		var factor: float = float(action.ability_factor)
+		if not is_finite(factor) or factor < 0.30 or factor > 1.0: return "Неверный функциональный множитель."
+		var base: int = int(action.base_duration_s)
+		if base <= 0 or (verb != "move" and base != _duration(verb)) or int(action.duration_s) != maxi(base, ceili(float(base) / factor)):
+			return "Длительность действия не соответствует сохранённым возможностям тела."
 	if verb == "move":
 		var target: String = str(action.parameters.get("target",""))
 		if action.id != "move:" + target or not graph[location].connections.has(target): return "Недопустимый путь действия."
 	elif verb in ["talk","trade","share_food"]:
 		var npc: String = str(action.parameters.get("npc_id",""))
-		if npc not in ["nina","pavel"] or action.id != verb + ":" + npc or action.duration_s != _duration(verb): return "Недопустимая цель действия."
-	elif action.id != verb or _duration(verb) <= 0 or action.duration_s != _duration(verb): return "Неизвестное действие в сохранении."
+		if npc not in ["nina","pavel"] or action.id != verb + ":" + npc or (not action.has("base_duration_s") and action.duration_s != _duration(verb)): return "Недопустимая цель действия."
+	elif action.id != verb or _duration(verb) <= 0 or (not action.has("base_duration_s") and action.duration_s != _duration(verb)): return "Неизвестное действие в сохранении."
 	if verb == "drink":
 		var mass: Variant = action.parameters.get("mass_kg",0.25)
 		if not (mass is int or mass is float) or mass <= 0.0 or mass > 2.0: return "Недопустимый объём действия."
