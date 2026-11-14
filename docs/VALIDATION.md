@@ -15,3 +15,9 @@
 ## Новый набор проверок после смены жанра
 
 Последовательные коммиты в main добавили `tests/test_zombies.gd`, обновили `tests/test_survival_scenario.gd` (нет победы), `tests/test_ui.gd` (настройки и без баннера), `tests/test_project_viewport.gd` (landscape design и portrait fallback). Последний CI статус должен проверяться для конкретного SHA. См. Z01–Z20 в docs/08_ACCEPTANCE.md. Эмулятор/настоящий Android не испытаны, клиническая и акустическая калибровка не выполнена.
+
+## Perception 2.0 — новая проверка на GitHub Actions
+
+Добавлены `test_acoustics.gd`, `test_zombie_acoustics.gd`, `test_perception.gd`, `test_acoustic_integration.gd`, изменены тесты заражённых и UI. Команды через `tools/run_tests.py` проверяют детерминированное ослабление звука, преграды, дождь/ветер, поведение заражённых без всеведения, скрытую личность NPC ночью, наблюдение после включения света, влияние кровопотери и сериализацию шумов.
+
+**Подтверждённый ранний CI** для `6d5bfeeab8aad73247c9a7fc49da033663a4c5d3`: [GitHub Actions #43597288298](https://github.com/VovaShkrobtak/DEEPest/actions/runs/43597288298), **23/23**, включая headless import и архитектурную проверку. Последующие коммиты проверять отдельно на их SHA. Это НЕ замеры Android, не 3D-акустика, не экспериментальная калибровка и не окончательная сквозная матрица всей игры.
