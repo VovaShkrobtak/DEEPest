@@ -11,7 +11,7 @@ func _run() -> void:
 	_remove_save(scene.autosave_path)
 	root.add_child(scene)
 	await process_frame
-	for dimensions in [Vector2i(390, 844), Vector2i(1280, 800)]:
+	for dimensions in [Vector2i(390, 844), Vector2i(844, 390), Vector2i(1280, 800)]:
 		root.size = dimensions
 		await process_frame
 		await process_frame
@@ -23,6 +23,24 @@ func _run() -> void:
 		_check(scene.command_input.get_global_rect().end.y <= root.get_visible_rect().size.y + 1, "Command stays inside viewport %s: bottom=%.1f visible=%.1f root=%.1f layout=%.1f mobile=%s side=%s navbar=%s footer=%s chooser=%s status=%s window=%s" % [dimensions, scene.command_input.get_global_rect().end.y, root.get_visible_rect().size.y, scene.root_column.size.y, scene.layout.size.y, scene.mobile, scene.side.visible, scene.navigation.visible, scene.mobile_nav.visible, scene.mobile_selector.visible, scene.mobile_status.visible, root.size])
 		_check(scene.page.size.x <= scene.main_scroll.size.x + 1, "Content has no horizontal overflow")
 		_check(scene.navigation.visible == (dimensions.x >= 980), "Navigation adapts to viewport")
+
+	var ui_before: String = JSON.stringify(scene.kernel.export_state())
+	scene._toggle_navigation()
+	await process_frame
+	_check(not scene.navigation.visible, "Desktop left navigation independently collapses")
+	scene._toggle_status()
+	await process_frame
+	_check(not scene.side.visible, "Desktop sensory sidebar independently collapses")
+	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "Collapsing panels never mutates simulation")
+	scene._toggle_navigation()
+	scene._toggle_status()
+	await process_frame
+	_check(scene.navigation.visible and scene.side.visible, "Both desktop sidebars restore")
+	scene._select_tab("Действия")
+	var catalog_buttons: Array[Button] = []
+	_find_actions(scene.page, catalog_buttons)
+	_check(not catalog_buttons.is_empty(), "Dedicated action catalogue uses contextual executable buttons")
+	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "Switching tabs never advances game time")
 	for tab in scene.TABS:
 		scene._select_tab(tab)
 		await process_frame

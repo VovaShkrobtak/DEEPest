@@ -33,6 +33,14 @@ func _initialize() -> void:
 	snapshot["action"] = {"title":"Работа"}
 	out = presenter.build(snapshot, catalog)
 	check(out.attention == "work", "Active action drives work layout")
+
+	snapshot["alive"] = false
+	out = presenter.build(snapshot, catalog)
+	check(out.actions.is_empty() and out.urgent_actions.is_empty(), "Dead observer exposes no gameplay affordances")
+	snapshot["alive"] = true
+	snapshot["conscious"] = false
+	out = presenter.build(snapshot, catalog)
+	check(out.actions.is_empty(), "Unconscious observer cannot issue normal commands")
 	print("Presentation contract: ", "PASS" if failures.is_empty() else JSON.stringify(failures))
 	quit(0 if failures.is_empty() else 1)
 
