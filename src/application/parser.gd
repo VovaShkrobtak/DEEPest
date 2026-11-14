@@ -2,6 +2,8 @@ extends RefCounted
 ## Deterministic finite command vocabulary; no model, IO or simulation mutation.
 const VERBS: Dictionary = {
 	"inspect": ["осмотр", "осмотреть", "осмотреться", "огляд", "inspect", "look"],
+	"listen": ["прислушаться", "прислушиваться", "слушать", "listen"],
+	"retreat": ["отступить", "отойти от зараженного", "отойти от заражённого", "retreat"],
 	"move": ["идти", "пойти", "перейти", "пройти", "move", "go", "walk"],
 	"clean_chimney": ["прочист", "очистить дымоход", "clean chimney"],
 	"light_fire": ["разжечь", "растопить", "зажечь печь", "light fire"],

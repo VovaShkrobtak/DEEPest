@@ -97,6 +97,12 @@ func apply(state: Dictionary, effect: Dictionary) -> void:
 			state.gut_energy_j += maxf(0.0, float(effect.get("energy_j", 0.0)))
 			state.infection = clampf(state.infection + maxf(0.0, float(effect.get("microbes", 0.0))) * 0.05, 0.0, 1.0)
 			state.toxin += maxf(0.0, float(effect.get("chemical", 0.0))) * 0.1
+		"infected_contact":
+			# Local tissue trauma + contamination, not arbitrary HP loss.
+			state.wound_m2 += maxf(0.0, float(effect.get("wound_m2", 0.0)))
+			state.bleeding_kg_s += maxf(0.0, float(effect.get("bleeding_kg_s", 0.0)))
+			state.infection = clampf(state.infection + maxf(0.0, float(effect.get("contamination", 0.0))), 0.0, 1.0)
+			state.stress = clampf(state.stress + 0.16, 0.0, 1.0)
 		"bandage":
 			state.bandaged = true
 		"wash_wound":

@@ -214,6 +214,8 @@ func _rebuild_content() -> void:
 		page.add_child(_label(str(weather.get("weather_label", "")) + " · " + str(weather.get("temp_label", "")), 12, MUTED))
 		var warnings: Array = snapshot.get("body", {}).get("warnings", []) + weather.get("warnings", [])
 		if not warnings.is_empty(): _section(page, "ОБРАТИТЕ ВНИМАНИЕ", "\n".join(warnings))
+	if not snapshot.get("threat_warnings", []).is_empty():
+		_section(page, "ПОБЛИЗОСТИ ОПАСНО", "\n".join(snapshot.get("threat_warnings", [])))
 	_terminal_banner()
 	if not snapshot.get("action", {}).is_empty(): _running_action()
 	if selected_tab == "Мир": _world_page()
@@ -348,6 +350,7 @@ func _knowledge_page() -> void:
 	_section(page, "ВРЕМЯ И ВЫБОР", "Мир меняется, пока вы действуете. Осмотритесь, оцените ощущения и выберите следующий шаг. Длительное действие можно прервать; уже прошедшее время не возвращается.")
 	_section(page, "ВОДА", "Прозрачность и запах не доказывают безопасность. Кипячение требует времени и топлива; химические примеси от него не исчезают.")
 	_section(page, "ХОЛОД И НОЧЛЕГ", "Влажная одежда и сквозняк усиливают холод. Закрытое окно уменьшает приток воздуха, но помещение не согревается мгновенно. Дымящая печь — повод проверить вентиляцию.")
+	_section(page, "ЗАРАЖЁННЫЕ", "Шум может привлечь заражённых, но они не знают, где вы, без признаков присутствия. Прислушивайтесь, следите за обстановкой и выбирайте момент для работы. Отступление занимает время.")
 	_section(page, "СВОБОДНЫЙ ВВОД", "Введите название доступного действия, например «осмотреться». Если команда неясна, мир останется на месте. Все действия доступны и через кнопки.")
 
 func _build_conditions(parent: Node) -> void:
@@ -356,7 +359,7 @@ func _build_conditions(parent: Node) -> void:
 	box.add_child(_label("Время идёт только при действии", 12, MUTED))
 	var body: Dictionary = snapshot.get("body", {})
 	var senses := _section(parent, "САМОЧУВСТВИЕ", "\n".join(body.get("sensations", [])))
-	for warning in body.get("warnings", []) + conditions.get("warnings", []): senses.add_child(_label(str(warning), 13, AMBER))
+	for warning in body.get("warnings", []) + conditions.get("warnings", []) + snapshot.get("threat_warnings", []): senses.add_child(_label(str(warning), 13, AMBER))
 	var inv: Dictionary = snapshot.get("inventory", {})
 	_section(parent, "ЗАПАСЫ", str(inv.get("water_text", "")) + "\n" + str(inv.get("load_text", "")))
 	parent.add_child(_label("БЕЗ СЕТИ · НЕТ ФИНАЛЬНОЙ ЦЕЛИ\nСЕВЕРНАЯ ПРОВИНЦИЯ, 1998", 10, MUTED))

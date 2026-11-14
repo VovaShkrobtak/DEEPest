@@ -5,6 +5,7 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	var body: Dictionary = modules.physiology.observe(state.body)
 	var environment: Dictionary = modules.environment.observe(state.environment, location)
 	var world: Dictionary = modules.world.observe(state.world, location)
+	var infected: Dictionary = modules.zombies.observe(state.zombies, location)
 	var inventory: Dictionary = modules.items.observe(state.items)
 	var locations: Dictionary = modules.world.locations()
 	var metadata: Dictionary = locations.get(location, {})
@@ -23,6 +24,7 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	if not world.get("description", []).is_empty():
 		descriptions = world.get("description", []).duplicate()
 	descriptions.append_array(environment.get("description", []))
+	descriptions.append_array(infected.get("descriptions", []))
 	var journal: Array = state.get("journal", []).slice(-120).duplicate(true)
 	for entry: Dictionary in journal:
 		var entry_clock: int = (int(entry.get("time_s", 0)) + 16 * 3600 + 20 * 60) % 86400
@@ -30,7 +32,8 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	return {"location_id": location, "location_title": metadata.get("title", location),
 		"description": descriptions, "conditions": environment, "body": body,
 		"inventory": inventory, "people": world.get("npcs", []),
-		"objects": environment.get("objects", []) + world.get("resources", []),
+		"objects": environment.get("objects", []) + world.get("resources", []) + infected.get("threats", []),
+		"threat_warnings": infected.get("warnings", []),
 		"routes": metadata.get("connections", []), "journal": journal,
 		"action": state.get("action", {}).duplicate(true), "goals": state.get("goals", []).duplicate(true),
 		"time_label": "%02d:%02d" % [clock / 3600, (clock / 60) % 60],
