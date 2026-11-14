@@ -4,6 +4,8 @@ const Kernel = preload("res://src/core/kernel.gd")
 const SaveStore = preload("res://src/adapters/save_store.gd")
 const Parser = preload("res://src/application/parser.gd")
 const Presentation = preload("res://src/application/presentation.gd")
+const MapProjection = preload("res://src/application/map_projection.gd")
+const VisualMap = preload("res://src/adapters/visual_map.gd")
 const INK = Color("e9e5da")
 const MUTED = Color("a1adae")
 const AMBER = Color("d6ae68")
@@ -370,6 +372,7 @@ func _select_tab(tab: String) -> void:
 
 func _world_page() -> void:
 	_section(page, "ЗДЕСЬ И СЕЙЧАС", "\n".join(snapshot.get("description", [])))
+	_build_visual_map()
 	if not view.get("urgent_actions", []).is_empty():
 		_section(page, "НЕМЕДЛЕННЫЕ ВОЗМОЖНОСТИ", "Доступные варианты основаны на замеченных признаках, а не на скрытом положении угроз.")
 		for action: Dictionary in view.get("urgent_actions", []):
@@ -384,6 +387,40 @@ func _world_page() -> void:
 	if not snapshot.get("objects", []).is_empty():
 		page.add_child(_label("ЗАМЕЧЕННЫЕ ДЕТАЛИ", 12, MUTED))
 		_entries(snapshot.get("objects", []), "")
+
+func _build_visual_map() -> void:
+	var diagram: Dictionary = MapProjection.new().build(snapshot)
+	if diagram.is_empty():
+		return
+	var box: VBoxContainer = _section(page, "СХЕМА МЕСТА")
+	var visual = VisualMap.new()
+	visual.custom_minimum_size.y = 275.0 if mobile else 305.0
+	visual.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	visual.set_diagram(diagram)
+	visual.route_selected.connect(_on_map_route_selected)
+	box.add_child(visual)
+	box.add_child(_label("Условная планировка; комнаты и положение мебели пока не моделируются. "
+		+ "Точки двора обозначают реальные маршруты, но не географические координаты.", 12, MUTED))
+	var nearby: Array[String] = []
+	for person: Dictionary in snapshot.get("people", []):
+		nearby.append(str(person.get("title", "Человек")))
+	if not nearby.is_empty():
+		box.add_child(_label("Видно рядом: " + ", ".join(nearby), 12, INK))
+	var heard: Array = snapshot.get("hearing", [])
+	if not heard.is_empty():
+		box.add_child(_label("Слышно: " + str(heard[0].get("text", "Неясный звук")), 12, AMBER))
+	var warnings: Array = snapshot.get("threat_warnings", [])
+	if not warnings.is_empty():
+		box.add_child(_label("Признаки опасности: " + str(warnings[0]), 12, AMBER))
+
+
+func _on_map_route_selected(target: String) -> void:
+	# A schematic never bypasses the authoritative action catalogue.
+	for descriptor: Dictionary in view.get("actions", []):
+		if str(descriptor.get("id", "")) == "move:" + target and bool(descriptor.get("enabled", false)):
+			_perform(str(descriptor.id), descriptor.get("parameters", {}))
+			return
+
 
 func _actions_page() -> void:
 	_section(page, "ЧТО МОЖНО СДЕЛАТЬ", "Доступность проверяет симуляция при выборе. Время и трудность ниже — приблизительная оценка, не гарантия исхода.")
