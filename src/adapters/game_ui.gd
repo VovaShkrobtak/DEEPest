@@ -24,6 +24,8 @@ var view: Dictionary = {}
 var navigation_collapsed: bool = false
 var status_collapsed: bool = false
 var high_contrast: bool = false
+var ui_sound_enabled: bool = false
+var ui_audio: AudioStreamPlayer
 var mobile_menu_open: bool = false
 var snapshot: Dictionary = {}
 var selected_tab: String = "Мир"
@@ -201,8 +203,36 @@ func _button(title: String, callback: Callable) -> Button:
 	button.custom_minimum_size.y = 48
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	button.pressed.connect(_play_ui_click)
 	button.pressed.connect(callback)
 	return button
+
+
+func _play_ui_click() -> void:
+	# Purely interface audio: never submit a world acoustic event.
+	if not ui_sound_enabled: return
+	if not is_instance_valid(ui_audio):
+		var generator := AudioStreamGenerator.new()
+		generator.mix_rate = 22050.0
+		generator.buffer_length = 0.1
+		ui_audio = AudioStreamPlayer.new()
+		ui_audio.stream = generator
+		ui_audio.volume_db = -24.0
+		add_child(ui_audio)
+	ui_audio.stop()
+	ui_audio.play()
+	var playback := ui_audio.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null: return
+	for index in range(mini(320, playback.get_frames_available())):
+		var t: float = float(index) / 22050.0
+		var sample: float = sin(TAU * 520.0 * t) * exp(-115.0 * t) * 0.07
+		playback.push_frame(Vector2(sample, sample))
+
+func _flash_notice() -> void:
+	if reduced_motion or not is_instance_valid(notice): return
+	notice.modulate.a = 0.6
+	var tween := create_tween()
+	tween.tween_property(notice, "modulate:a", 1.0, 0.16)
 
 func _clear(node: Node) -> void:
 	for child in node.get_children():
@@ -317,14 +347,19 @@ func _toggle_status() -> void:
 	_save_settings()
 	_rebuild_content()
 
+
 func _render_signals(parent: Node, signals: Array, only_danger: bool = false) -> void:
 	if signals.is_empty(): return
-	var selected: Array[String] = []
+	var chosen: Array = []
 	for observation: Dictionary in signals:
 		if only_danger and str(observation.get("severity", "")) != "danger": continue
-		selected.append(str(observation.get("text", "")))
-	if not selected.is_empty():
-		_section(parent, "ВАШЕ ВНИМАНИЕ" if only_danger else "ВОСПРИЯТИЕ", "\n".join(selected))
+		chosen.append(observation)
+	if chosen.is_empty(): return
+	var box := _section(parent, "ЗАМЕЧЕННЫЕ ПРИЗНАКИ" if only_danger else "ВАШИ ОЩУЩЕНИЯ")
+	for observation: Dictionary in chosen:
+		var important: bool = str(observation.get("severity", "")) in ["danger", "warning"]
+		var prefix: String = "!  " if important else "·  "
+		box.add_child(_label(prefix + str(observation.get("text", "")), 14, AMBER if important else INK))
 
 
 func _select_tab(tab: String) -> void:
@@ -445,6 +480,12 @@ func _journal_page() -> void:
 		_section(page, str(entry.get("time_label", "")) + " · НАБЛЮДЕНИЕ", str(entry.get("text", "")))
 
 func _knowledge_page() -> void:
+	var entries: Array = snapshot.get("journal", [])
+	var memory := _section(page, "ПАМЯТЬ О ПРОШЕДШЕМ", "Это записи прошлых наблюдений. Обстановка могла измениться с тех пор.")
+	var latest: Array = entries.slice(maxi(0, entries.size() - 6))
+	latest.reverse()
+	for entry: Dictionary in latest:
+		memory.add_child(_label(str(entry.get("time_label", "")) + " · " + str(entry.get("text", "")), 13))
 	_section(page, "ВРЕМЯ И ВЫБОР", "Мир меняется, пока вы действуете. Осмотритесь, оцените ощущения и выберите следующий шаг. Длительное действие можно прервать; уже прошедшее время не возвращается.")
 	_section(page, "ВОДА", "Прозрачность и запах не доказывают безопасность. Кипячение требует времени и топлива; химические примеси от него не исчезают.")
 	_section(page, "ХОЛОД И НОЧЛЕГ", "Влажная одежда и сквозняк усиливают холод. Закрытое окно уменьшает приток воздуха, но помещение не согревается мгновенно. Дымящая печь — повод проверить вентиляцию.")
@@ -494,6 +535,12 @@ func _settings_page() -> void:
 	motion.custom_minimum_size.y = 48
 	motion.toggled.connect(func(value: bool): reduced_motion = value; _save_settings())
 	box.add_child(motion)
+	var sound := CheckButton.new()
+	sound.text = "Тихие звуки интерфейса (не слышны в игровом мире)"
+	sound.button_pressed = ui_sound_enabled
+	sound.custom_minimum_size.y = 48
+	sound.toggled.connect(func(enabled: bool): ui_sound_enabled = enabled; _save_settings())
+	box.add_child(sound)
 	var orientation := _section(page, "ОРИЕНТАЦИЯ ЭКРАНА", "Android: по умолчанию горизонтально. Вертикальный режим включается вручную.")
 	var portrait_toggle := CheckButton.new()
 	portrait_toggle.text = "Вертикальный режим (Android)"
@@ -516,6 +563,7 @@ func _perform(id: String, parameters: Dictionary = {}) -> void:
 		main_scroll.scroll_vertical = 0
 		if kernel.snapshot().get("action", {}).is_empty(): _autosave()
 	_refresh()
+	_flash_notice()
 
 func _advance() -> void:
 	if kernel.snapshot().get("action", {}).is_empty():
@@ -544,6 +592,7 @@ func _cancel() -> void:
 		autosave_protected = false
 		_autosave()
 	_refresh()
+	_flash_notice()
 
 func _submit(value: String) -> void:
 	if value.strip_edges().is_empty(): return
@@ -620,6 +669,7 @@ func _save_settings() -> void:
 	config.set_value("interface", "navigation_collapsed", navigation_collapsed)
 	config.set_value("interface", "status_collapsed", status_collapsed)
 	config.set_value("interface", "high_contrast", high_contrast)
+	config.set_value("interface", "ui_sound_enabled", ui_sound_enabled)
 	config.save(settings_path)
 
 func _load_settings() -> void:
@@ -631,6 +681,7 @@ func _load_settings() -> void:
 		navigation_collapsed = bool(config.get_value("interface", "navigation_collapsed", false))
 		status_collapsed = bool(config.get_value("interface", "status_collapsed", false))
 		high_contrast = bool(config.get_value("interface", "high_contrast", false))
+		ui_sound_enabled = bool(config.get_value("interface", "ui_sound_enabled", false))
 
 func _update_design_scale() -> void:
 	# Portrait mode has its own logical design size: landscape 1280x720 would
