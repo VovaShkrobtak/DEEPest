@@ -51,8 +51,10 @@ func _initialize() -> void:
 		"wound_m2":0.0005,"bleeding_kg_s":0.00004,
 		"contamination":0.6, "tissue_damage":{"skin":0.08}})
 	check(treated.restore_state(wounds).ok, "Additional local wound can be saved")
-	check(treated.command("bandage:right_leg").ok, "Player can target injured right leg")
-	check(treated.step(int(treated.export_state().action.duration_s)).ok, "Targeted field dressing finishes")
+	var dressing_order: Dictionary = treated.command("bandage:right_leg")
+	check(dressing_order.ok, "Player can target injured right leg: " + str(dressing_order.get("message","")))
+	if not treated.export_state().action.is_empty():
+		check(treated.step(int(treated.export_state().action.duration_s)).ok, "Targeted field dressing finishes")
 	var after_dressing: Dictionary = treated.export_state()
 	check(bool(after_dressing.body.anatomy.parts.right_leg.wounds[0].bandaged), "Right leg wound receives bandage")
 	check(not bool(after_dressing.body.anatomy.parts.left_arm.wounds[0].bandaged), "Old left-arm wound stays undressed")
@@ -63,8 +65,10 @@ func _initialize() -> void:
 	check(treated.restore_state(water).ok, "Clean-water setup restored")
 	var initial_contamination: float = float(water.body.anatomy.parts.right_leg.wounds[0].contamination)
 	var left_contamination: float = float(water.body.anatomy.parts.left_arm.wounds[0].contamination)
-	check(treated.command("wash_wound:right_leg").ok, "Can wash selected wound")
-	check(treated.step(int(treated.export_state().action.duration_s)).ok, "Washing is a real-time action")
+	var washing_order: Dictionary = treated.command("wash_wound:right_leg")
+	check(washing_order.ok, "Can wash selected wound: " + str(washing_order.get("message","")))
+	if not treated.export_state().action.is_empty():
+		check(treated.step(int(treated.export_state().action.duration_s)).ok, "Washing is a real-time action")
 	var washed: Dictionary = treated.export_state()
 	check(float(washed.body.anatomy.parts.right_leg.wounds[0].contamination) < initial_contamination,
 		"Only targeted surface contamination decreases")

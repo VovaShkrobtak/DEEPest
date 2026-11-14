@@ -146,10 +146,10 @@ func action_efficiency(state: Dictionary, verb: String) -> float:
 		var coordination: float = float(caps.precision)
 		if verb in ["hunt", "repair_radio"]:
 			coordination *= float(caps.vision)
-		return 1.0 if coordination >= 0.90 else clampf(coordination, 0.0, 0.90)
+		return 1.0 if coordination >= 0.85 else clampf(coordination, 0.0, 0.85)
 	if verb in ["gather_wood", "add_fuel", "fill_water", "ventilate", "light_fire", "cook", "boil_water", "trade", "share_food"]:
 		var grip: float = float(caps.grip)
-		return 1.0 if grip >= 0.90 else clampf(grip, 0.0, 0.90)
+		return 1.0 if grip >= 0.85 else clampf(grip, 0.0, 0.85)
 	return 1.0
 
 func action_limit(state: Dictionary, verb: String) -> String:
