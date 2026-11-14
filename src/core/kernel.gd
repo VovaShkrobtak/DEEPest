@@ -115,13 +115,13 @@ func _base(id: String) -> String:
 func _params(id: String, args: Dictionary) -> Dictionary:
 	var params: Dictionary = args.duplicate(true)
 	if id.begins_with("move:"):
-		params.target = id.substr(5)
+		params["target"] = id.substr(5)
 	elif id.begins_with("bandage:"):
-		params.part = id.substr(8)
+		params["part"] = id.substr(8)
 	elif id.begins_with("wash_wound:"):
-		params.part = id.substr(11)
+		params["part"] = id.substr(11)
 	elif ":" in id:
-		params.npc_id = id.split(":")[1]
+		params["npc_id"] = id.split(":")[1]
 	return params
 
 func _validate(id: String, arguments: Dictionary) -> String:
