@@ -1,0 +1,22 @@
+name: Headless verification
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.6.3
+          use-dotnet: false
+          include-templates: false
+      - name: Architecture, headless import and standalone tests
+        run: python tools/run_tests.py
