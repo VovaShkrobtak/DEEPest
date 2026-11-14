@@ -93,7 +93,7 @@ func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 		if acoustic_model != null and not acoustics_state.is_empty() and progress > 0.0:
 			# A moving body emits a finite, localizable but not identified sound.
 			acoustic_model.emit(acoustics_state, graph, str(agent.location), "shuffling",
-				64.0 if alerted else 60.0, id, float(agent.distance_m))
+				72.0 if alerted else 66.0, id, float(agent.distance_m))
 		if str(agent.location) == player_location and float(agent.distance_m) <= 30.0 and not agent.close_reported:
 			agent.close_reported = true
 			events.append({"type":"infected_approach","location":player_location,

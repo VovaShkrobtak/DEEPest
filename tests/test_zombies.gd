@@ -3,7 +3,7 @@ const ZombieModel = preload("res://src/domain/zombies.gd")
 const Kernel = preload("res://src/core/kernel.gd")
 const World = preload("res://src/domain/world.gd")
 const Acoustics = preload("res://src/domain/acoustics.gd")
-const Environment = preload("res://src/domain/environment.gd")
+const EnvModel = preload("res://src/domain/environment.gd")
 var failures: int = 0
 
 func check(value: bool, title: String) -> void:
@@ -19,7 +19,7 @@ func _initialize() -> void:
 	check(a.agents.size() == 3, "finite, persistent infected population")
 	var graph: Dictionary = World.new().locations()
 	var acoustic_model = Acoustics.new()
-	var environment: Dictionary = Environment.new().initial_state(1998)
+	var environment: Dictionary = EnvModel.new().initial_state(1998)
 	var quiet: Dictionary = a.duplicate(true)
 	var muted: Dictionary = acoustic_model.initial_state()
 	model.advance(quiet, 60.0, {"player_location":"forest","graph":graph,

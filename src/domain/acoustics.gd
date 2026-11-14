@@ -121,7 +121,7 @@ func _uncertain_description(kind: String, recognizable: bool) -> String:
 	return "Слышен звук из окружающей обстановки."
 
 func validate_state(state: Dictionary, graph: Dictionary) -> String:
-	if state.get("schema_version") != 1 or not state.get("events") is Array or not state.get("sequence") is int:
+	if state.get("schema_version") != 1 or not state.get("events") is Array or not (state.get("sequence") is int or state.get("sequence") is float) or not _whole(state.get("sequence")):
 		return "Неверная схема акустических событий."
 	if not (state.get("time_s") is int or state.get("time_s") is float) or not is_finite(float(state.time_s)) or float(state.time_s) < 0.0:
 		return "Некорректное акустическое время."
@@ -132,7 +132,7 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 		for numeric: String in ["time_s", "level_db", "offset_m"]:
 			if not (event.get(numeric) is int or event.get(numeric) is float) or not is_finite(float(event[numeric])) or float(event[numeric]) < 0.0: return "Недопустимая физическая величина звука."
 		var number: Variant = event.get("sequence")
-		if not number is int or int(number) < 1 or int(number) > int(state.sequence) or seen.has(number): return "Повреждён номер звукового события."
+		if not (number is int or number is float) or not _whole(number) or int(number) < 1 or int(number) > int(state.sequence) or seen.has(number): return "Повреждён номер звукового события."
 		seen[number] = true
 		if not graph.has(str(event.get("location", ""))) or not str(event.get("kind", "")) in SOUND_TYPES or not event.get("owner") is String or str(event.owner).length() > 64:
 			return "Неизвестный источник звука."
@@ -140,3 +140,6 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 			return "Невозможное время звукового события."
 		if float(event.level_db) > 140.0 or float(event.offset_m) > 20000.0: return "Невозможная сила или удалённость звука."
 	return ""
+
+func _whole(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value)) and float(value) == floor(float(value))
