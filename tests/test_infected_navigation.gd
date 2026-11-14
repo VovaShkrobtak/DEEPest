@@ -23,6 +23,21 @@ func _initialize() -> void:
 	broken["shelter|yard"]["brace_kg"] = -1.0
 	check(not model.validate_state(broken,graph).is_empty(), "Negative wood cannot enter saves")
 	check(not model.act(doors,graph,"forest","garden","open").ok, "No invented direct route")
+
+	# Synthetic connected layout proves weighted route selection. Production
+	# 7-node star cannot offer an alternate path where none physically exists.
+	var alternate: Dictionary = {
+		"shelter":{"connections":{"yard":12.0,"garden":8.0}},
+		"yard":{"connections":{"shelter":12.0,"garden":8.0}},
+		"garden":{"connections":{"shelter":8.0,"yard":8.0}}
+	}
+	var closed_routes: Dictionary = model.initial_state()
+	model.act(closed_routes,alternate,"shelter","yard","close")
+	check(model.shortest_path(alternate,closed_routes,"shelter","yard") == ["shelter","garden","yard"],
+		"Weighted navigation detours through real alternate edges instead of crossing blocked door")
+	model.act(closed_routes,alternate,"shelter","yard","open")
+	check(model.shortest_path(alternate,closed_routes,"shelter","yard") == ["shelter","yard"],
+		"Opening barrier restores shortest route")
 	print("Navigation and doors: ", "PASS" if errors.is_empty() else JSON.stringify(errors))
 	quit(0 if errors.is_empty() else 1)
 func check(ok: bool, msg: String) -> void:
