@@ -266,7 +266,7 @@ func step(seconds: float) -> Dictionary:
 				_trace("action_complete",action)
 			else:
 				_log("interrupted","Работа остановлена: " + reason + " Потраченное время сохраняется.")
-		return _result(true)
+	return _result(true)
 
 func _action_noise_db(verb: String) -> float:
 	# Simplified acoustic source-level assumptions at 1 metre; see docs/10.

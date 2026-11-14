@@ -49,6 +49,7 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	_load_settings()
 	_apply_orientation()
+	_update_design_scale()
 	_install_theme()
 	_build_shell()
 	action_timer = Timer.new()
@@ -502,7 +503,17 @@ func _load_settings() -> void:
 		reduced_motion = bool(config.get_value("interface", "reduced_motion", true))
 		portrait_mode = bool(config.get_value("interface", "portrait_mode", false))
 
+func _update_design_scale() -> void:
+	# Portrait mode has its own logical design size: landscape 1280x720 would
+	# otherwise become a 1280x2700 canvas and shrink touch controls to unreadability.
+	var window: Window = get_window()
+	var portrait: bool = window.size.y > window.size.x
+	var desired: Vector2i = Vector2i(420, 900) if portrait else Vector2i(1280, 720)
+	if window.content_scale_size != desired:
+		window.content_scale_size = desired
+
 func _responsive() -> void:
+	_update_design_scale()
 	if not is_instance_valid(navigation) or rebuilding: return
 	var should_mobile: bool = size.x < 980 or text_scale > 1.4
 	if should_mobile != mobile:
