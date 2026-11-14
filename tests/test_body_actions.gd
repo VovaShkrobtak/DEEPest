@@ -61,7 +61,7 @@ func _initialize() -> void:
 	check(after_dressing.body.anatomy.parts.right_leg.tissues.skin < 1.0, "Bandage does not restore torn skin")
 	check(int(after_dressing.items.inventory.bandage) == 1, "One actual bandage consumed")
 	var water: Dictionary = after_dressing.duplicate(true)
-	water.items.water.boil_exposure_s = 60.0
+	water["items"]["water"]["boil_exposure_s"] = 60.0
 	var water_restore: Dictionary = treated.restore_state(water)
 	check(water_restore.ok, "Clean-water setup restored: " + str(water_restore.get("message", "")))
 	var initial_contamination: float = float(water.body.anatomy.parts.right_leg.wounds[0].contamination)
