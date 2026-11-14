@@ -26,6 +26,10 @@ func build(snapshot: Dictionary, catalog: Array) -> Dictionary:
 	var urgent: Array = []
 	var people_visible: bool = not snapshot.get("people", []).is_empty()
 	for descriptor: Dictionary in catalog:
+		if not bool(snapshot.get("alive", true)):
+			continue
+		if not bool(snapshot.get("conscious", true)) and str(descriptor.get("id", "")) != "wait":
+			continue
 		var id: String = str(descriptor.get("id", ""))
 		if not bool(descriptor.get("enabled", false)):
 			continue
