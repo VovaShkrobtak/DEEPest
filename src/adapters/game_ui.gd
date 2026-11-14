@@ -314,9 +314,9 @@ func _toggle_status() -> void:
 func _render_signals(parent: Node, signals: Array, only_danger: bool = false) -> void:
 	if signals.is_empty(): return
 	var selected: Array[String] = []
-	for signal: Dictionary in signals:
-		if only_danger and str(signal.get("severity", "")) != "danger": continue
-		selected.append(str(signal.get("text", "")))
+	for observation: Dictionary in signals:
+		if only_danger and str(observation.get("severity", "")) != "danger": continue
+		selected.append(str(observation.get("text", "")))
 	if not selected.is_empty():
 		_section(parent, "ВАШЕ ВНИМАНИЕ" if only_danger else "ВОСПРИЯТИЕ", "\n".join(selected))
 
