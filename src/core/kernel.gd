@@ -7,6 +7,7 @@ const World = preload("res://src/domain/world.gd")
 const Items = preload("res://src/domain/items.gd")
 const Zombies = preload("res://src/domain/zombies.gd")
 const Acoustics = preload("res://src/domain/acoustics.gd")
+const Anatomy = preload("res://src/domain/anatomy.gd")
 const BUILD: String = "0.1.0"
 const CONTENT_HASH: String = "deepest-first-night-v1"
 const MAX_JOURNAL: int = 180
@@ -88,8 +89,17 @@ func available_actions() -> Array:
 	out.append(_action("drink","Выпить воды",30,"Небольшими глотками: 250 мл. Горячую воду сначала остудите.","Вода и еда",{"mass_kg":0.25}))
 	out.append(_action("eat","Поесть",300,"Съесть один паёк или приготовленный картофель.","Вода и еда"))
 	out.append(_action("craft_bandage","Сделать повязку",300,"Один отрез ткани превратить в повязку. Ткань не появляется заново.","Ремесло"))
-	out.append(_action("bandage","Перевязать руку",180,"Остановить часть кровотечения готовой повязкой.","Тело"))
-	out.append(_action("wash_wound","Промыть порез",120,"Израсходовать 100 мл остывшей кипячёной воды.","Тело"))
+	out.append(_action("bandage","Перевязать наиболее кровоточащую рану",180,
+		"Обработать подходящую рану; одна повязка не закрывает остальные.","Тело"))
+	out.append(_action("wash_wound","Промыть загрязнённую рану",120,
+		"Осторожно обработать поверхность 100 мл остывшей воды.","Тело"))
+	for part: String in Anatomy.PARTS:
+		if modules.physiology.anatomy.can_treat(_state.body.anatomy, "bandage", part):
+			out.append(_action("bandage:" + part, "Перевязать: " + str(Anatomy.PART_TITLES[part]),
+				180, "Зафиксировать повязку на конкретном повреждённом участке.","Тело",{"part":part}))
+		if modules.physiology.anatomy.can_treat(_state.body.anatomy, "wash", part):
+			out.append(_action("wash_wound:" + part, "Промыть: " + str(Anatomy.PART_TITLES[part]),
+				120, "Вода очищает поверхность, но не излечивает глубокую инфекцию.","Тело",{"part":part}))
 	out.append(_action("rest","Отдохнуть полчаса",1800,"Сесть, снизить нагрузку. Мир продолжает жить.","Тело"))
 	out.append(_action("sleep","Спать два часа",7200,"Сон помогает при приемлемой температуре и воздухе. Опасность прервёт сон.","Тело"))
 	out.append(_action("wait","Подождать 10 минут",600,"Дать воде остыть или переждать. Потребности и запасы продолжают меняться.","Мир"))
@@ -106,6 +116,10 @@ func _params(id: String, args: Dictionary) -> Dictionary:
 	var params: Dictionary = args.duplicate(true)
 	if id.begins_with("move:"):
 		params.target = id.substr(5)
+	elif id.begins_with("bandage:"):
+		params.part = id.substr(8)
+	elif id.begins_with("wash_wound:"):
+		params.part = id.substr(11)
 	elif ":" in id:
 		params.npc_id = id.split(":")[1]
 	return params
@@ -169,9 +183,11 @@ func _validate(id: String, arguments: Dictionary) -> String:
 		"craft_bandage": return modules.items.validate(_state.items,{"kind":"craft_bandage"})
 		"bandage","help_nina":
 			if inv.bandage < 1: return "Нужна повязка. Сделайте её из ткани."
-			if verb == "bandage": return "Повязка уже наложена." if _state.body.bandaged else ""
+			if verb == "bandage":
+				return "" if modules.physiology.anatomy.can_treat(_state.body.anatomy, "bandage", str(args.get("part",""))) else "Здесь нет открытой раны, которую можно перевязать."
 			return modules.world.availability(_state.world,{"kind":"help_nina","npc_id":"nina","location":_state.location})
 		"wash_wound":
+			if not modules.physiology.anatomy.can_treat(_state.body.anatomy, "wash", str(args.get("part",""))): return "На выбранном участке нет раны для промывания."
 			if _state.items.water.temp_k > 313.15: return "Нужна остывшая вода."
 			if _state.items.water.boil_exposure_s < 60.0: return "Сначала прокипятите воду."
 			return modules.items.validate(_state.items,{"kind":"remove_water","mass_kg":0.1})
@@ -420,10 +436,10 @@ func _complete(action: Dictionary) -> void:
 			_body("eat",{"energy_j":600000.0 if food == "cooked_potato" else 2800000.0,"water_kg":0.15 if food == "cooked_potato" else 0.08,"microbes":0.5 if _state.items.food_age_warm_s > 172800.0 else 0.0})
 		"bandage":
 			_consume("bandage")
-			_body("bandage")
+			_body("bandage", {"part":str(params.get("part",""))})
 		"wash_wound":
 			_item("remove_water",{"mass_kg":0.1})
-			_body("wash_wound")
+			_body("wash_wound", {"part":str(params.get("part",""))})
 		"craft_bandage","repair_radio","repair_cart","switch_radio","switch_lamp","cook":
 			_item(verb)
 			if verb == "switch_radio" and _state.items.electricity.radio_on:
@@ -600,6 +616,9 @@ func _validate_saved_action(action: Dictionary, location: String, graph: Diction
 	elif verb in ["talk","trade","share_food"]:
 		var npc: String = str(action.parameters.get("npc_id",""))
 		if npc not in ["nina","pavel"] or action.id != verb + ":" + npc or (not action.has("base_duration_s") and action.duration_s != _duration(verb)): return "Недопустимая цель действия."
+	elif verb in ["bandage", "wash_wound"] and ":" in str(action.id):
+		var part: String = str(action.parameters.get("part", ""))
+		if part not in Anatomy.PARTS or action.id != verb + ":" + part: return "Неизвестная цель перевязки."
 	elif action.id != verb or _duration(verb) <= 0 or (not action.has("base_duration_s") and action.duration_s != _duration(verb)): return "Неизвестное действие в сохранении."
 	if verb == "drink":
 		var mass: Variant = action.parameters.get("mass_kg",0.25)
