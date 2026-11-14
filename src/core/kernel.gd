@@ -6,18 +6,19 @@ const EnvModel = preload("res://src/domain/environment.gd")
 const World = preload("res://src/domain/world.gd")
 const Items = preload("res://src/domain/items.gd")
 const Zombies = preload("res://src/domain/zombies.gd")
+const Acoustics = preload("res://src/domain/acoustics.gd")
 const BUILD: String = "0.1.0"
 const CONTENT_HASH: String = "deepest-first-night-v1"
 const MAX_JOURNAL: int = 180
 const MAX_TRACE: int = 240
 const WORK_IDS: Array[String] = ["clean_chimney","seal_window","craft_bandage","repair_radio","repair_cart"]
-var modules: Dictionary = {"physiology":Physiology.new(),"environment":EnvModel.new(),"world":World.new(),"items":Items.new(),"zombies":Zombies.new()}
+var modules: Dictionary = {"physiology":Physiology.new(),"environment":EnvModel.new(),"world":World.new(),"items":Items.new(),"zombies":Zombies.new(),"acoustics":Acoustics.new()}
 var _state: Dictionary
 
 func _init(seed_value: int = 1998) -> void:
 	_state = {"schema_version":1,"build":BUILD,"content_hash":CONTENT_HASH,"seed":seed_value,"time_s":0,"revision":0,
 		"location":"shelter","body":modules.physiology.initial_state(),"environment":modules.environment.initial_state(seed_value),
-		"world":modules.world.initial_state(seed_value),"items":modules.items.initial_state(),"zombies":modules.zombies.initial_state(seed_value),"action":{},"journal":[],"trace":[],"action_log":[],
+		"world":modules.world.initial_state(seed_value),"items":modules.items.initial_state(),"zombies":modules.zombies.initial_state(seed_value),"acoustics":modules.acoustics.initial_state(),"action":{},"journal":[],"trace":[],"action_log":[],
 		"work_progress":{},"knowledge":{},"goals":[],"won":false,"consumed":{},"ground":{}}
 	_log("arrival", "14 октября 1998 года. Посёлок затих. По улицам бродят заражённые. Здесь нет сюжета, квестов или спасательного финала.")
 	_log("hint", "На руке саднит порез. Из ткани можно сделать повязку. Выживание зависит от действий, звуков и состояния мира.")
@@ -241,7 +242,23 @@ func step(seconds: float) -> Dictionary:
 		body_context.sleeping = verb in ["sleep","rest"]
 		_append_events(modules.physiology.advance(_state.body,dt,body_context))
 		_append_events(modules.world.advance(_state.world,dt,{"weather":_state.environment.weather,"rooms":_state.environment.rooms,"hour":fmod(16.0 + 20.0 / 60.0 + float(_state.time_s)/3600.0,24.0)}))
-		var infected_events: Array = modules.zombies.advance(_state.zombies, float(dt), {"player_location":_state.location,"graph":modules.world.locations(),"noise_db":_action_noise_db(verb),"barrier_db":15.0 if _state.environment.rooms.has(_state.location) else 0.0,"temperature_k":float(_state.environment.weather.temp_k)})
+
+		# Sound sources are physical world events, not a shared enemy-alert flag.
+		# The acoustic clock runs in the same fixed-step transaction as the world.
+		modules.acoustics.advance(_state.acoustics, float(dt))
+		var graph: Dictionary = modules.world.locations()
+		var noise_db: float = _action_noise_db(verb)
+		if noise_db > 0.0:
+			modules.acoustics.emit(_state.acoustics, graph, _state.location, _action_sound_kind(verb), noise_db, "player")
+		if bool(_state.items.electricity.radio_on):
+			modules.acoustics.emit(_state.acoustics, graph, _state.location, "radio", 65.0, "player_radio")
+		for room_id: String in _state.environment.rooms:
+			if bool(_state.environment.rooms[room_id].burning):
+				modules.acoustics.emit(_state.acoustics, graph, room_id, "fire", 46.0, "stove_" + room_id)
+		var infected_events: Array = modules.zombies.advance(_state.zombies, float(dt),
+			{"player_location":_state.location, "graph":graph, "acoustics":_state.acoustics,
+			 "acoustic_model":modules.acoustics, "environment":_state.environment,
+			 "temperature_k":float(_state.environment.weather.temp_k)})
 		for event: Dictionary in infected_events:
 			if event.get("type","") == "infected_contact":
 				_body("infected_contact", event)
@@ -268,6 +285,17 @@ func step(seconds: float) -> Dictionary:
 				_log("interrupted","Работа остановлена: " + reason + " Потраченное время сохраняется.")
 	return _result(true)
 
+func _action_sound_kind(verb: String) -> String:
+	match verb:
+		"move", "retreat": return "footsteps"
+		"gather_wood", "repair_cart", "clean_chimney", "repair_radio": return "work"
+		"hunt": return "impact"
+		"switch_radio": return "radio"
+		"fill_water", "boil_water": return "water"
+		"ventilate", "seal_window", "light_fire": return "metal"
+		"talk", "trade", "share_food": return "voice"
+	return "environment"
+
 func _action_noise_db(verb: String) -> float:
 	# Simplified acoustic source-level assumptions at 1 metre; see docs/10.
 	match verb:
@@ -284,6 +312,9 @@ func _action_noise_db(verb: String) -> float:
 func _append_events(events: Array) -> void:
 	for event: Dictionary in events:
 		_trace(str(event.get("type","event")),event)
+		# Heard approach is rendered from actual acoustic propagation, not a raw
+		# simulation event which would disclose a silent/unseen infected.
+		if str(event.get("type","")) == "infected_approach": continue
 		# Nonlocal NPC events belong only to developer trace.
 		if event.get("location",_state.location) == _state.location:
 			_log(str(event.get("type","event")),str(event.get("text","")))
@@ -316,9 +347,16 @@ func _complete(action: Dictionary) -> void:
 	var verb: String = _base(action.id)
 	var params: Dictionary = action.parameters
 	match verb:
+
 		"listen":
-			var signs: Dictionary = modules.zombies.observe(_state.zombies, _state.location)
-			_log("observation", "Вы прислушиваетесь. " + ("Слышны следы чужого присутствия." if not signs.warnings.is_empty() or not signs.descriptions.is_empty() else "Рядом не удаётся различить чужих шагов."))
+			var hearing_penalty: float = 0.0
+			if float(_state.body.blood_kg) < 4.0: hearing_penalty += 8.0
+			if float(_state.body.hypoxia_s) > 40.0: hearing_penalty += 9.0
+			if float(_state.body.fatigue) > 0.7: hearing_penalty += 4.0
+			var heard: Array = modules.acoustics.hear(_state.acoustics, _state.location,
+				modules.world.locations(), _state.environment, 23.0 + hearing_penalty, 8.0)
+			_log("observation", "Вы прислушиваетесь. " + (str(heard[0].text) if not heard.is_empty() else "Различить определённый источник звука не удаётся."))
+
 		"retreat":
 			modules.zombies.apply(_state.zombies, {"kind":"retreat","location":_state.location})
 			_log("action", "Вы с усилием разрываете дистанцию. Заражённый всё ещё где-то рядом.")
@@ -402,6 +440,9 @@ func restore_state(data: Dictionary) -> Dictionary:
 		# Use a String key on insertion: the save validator rejects non-String keys.
 		upgraded["zombies"] = modules.zombies.initial_state(int(upgraded.seed))
 		upgraded["zombies"]["time_s"] = float(upgraded.get("time_s",0))
+	if not upgraded.has("acoustics") and upgraded.has("time_s"):
+		upgraded["acoustics"] = modules.acoustics.initial_state()
+		upgraded["acoustics"]["time_s"] = float(upgraded.get("time_s", 0))
 	var reason: String = validate_state(upgraded)
 	if reason != "": return _result(false,reason)
 	_state = upgraded.duplicate(true)
@@ -412,9 +453,11 @@ func restore_state(data: Dictionary) -> Dictionary:
 
 func validate_state(data: Dictionary) -> String:
 	if data.get("schema_version",0) != 1 or data.get("build","") != BUILD or data.get("content_hash","") != CONTENT_HASH: return "Несовместимая версия сохранения или контента."
-	for key: String in ["seed","time_s","revision","location","body","environment","world","items","zombies","action","journal","trace","action_log","work_progress","knowledge","goals","won","consumed","ground"]:
+	for key: String in ["seed","time_s","revision","location","body","environment","world","items","zombies","acoustics","action","journal","trace","action_log","work_progress","knowledge","goals","won","consumed","ground"]:
 		if not data.has(key): return "Сохранение неполное: " + key
 	if not _finite_tree(data): return "Сохранение содержит недопустимые численные значения."
+	var acoustic_reason: String = modules.acoustics.validate_state(data.acoustics, modules.world.locations())
+	if acoustic_reason != "": return acoustic_reason
 	var infected_reason: String = modules.zombies.validate_state(data.zombies, modules.world.locations())
 	if infected_reason != "": return infected_reason
 	var graph: Dictionary = modules.world.locations()
@@ -429,7 +472,7 @@ func validate_state(data: Dictionary) -> String:
 		if not data[key] is Array: return "Повреждена очередь " + key
 	if not data.won is bool: return "Повреждено состояние целей."
 	if data.journal.size() > MAX_JOURNAL or data.trace.size() > MAX_TRACE or data.action_log.size() > 2048: return "Превышен размер журнала."
-	if not _nonnegative(data.body) or not _nonnegative(data.items) or not _nonnegative(data.environment) or not _nonnegative(data.world) or not _nonnegative(data.zombies): return "Отрицательная физическая величина."
+	if not _nonnegative(data.body) or not _nonnegative(data.items) or not _nonnegative(data.environment) or not _nonnegative(data.world) or not _nonnegative(data.zombies) or not _nonnegative(data.acoustics): return "Отрицательная физическая величина."
 	if data.items.water.capacity_kg != 2.0 or data.items.water.volume_kg > 2.0: return "Недопустимый объём воды."
 	if data.items.electricity.battery_j > 18000.0: return "Недопустимый заряд."
 	if data.items.inventory.size() != Items.MASS.size(): return "Неизвестные предметы в инвентаре."

@@ -1,11 +1,12 @@
 extends RefCounted
+const Perception = preload("res://src/application/perception.gd")
 ## Perception boundary. Only public subsystem observations reach the interface.
 func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 	var location: String = str(state.get("location", "shelter"))
 	var body: Dictionary = modules.physiology.observe(state.body)
 	var environment: Dictionary = modules.environment.observe(state.environment, location)
 	var world: Dictionary = modules.world.observe(state.world, location)
-	var infected: Dictionary = modules.zombies.observe(state.zombies, location)
+	var perceived: Dictionary = Perception.new().observe(state, modules, location)
 	var inventory: Dictionary = modules.items.observe(state.items)
 	var locations: Dictionary = modules.world.locations()
 	var metadata: Dictionary = locations.get(location, {})
@@ -23,17 +24,23 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 		descriptions.append(str(base))
 	if not world.get("description", []).is_empty():
 		descriptions = world.get("description", []).duplicate()
-	descriptions.append_array(environment.get("description", []))
-	descriptions.append_array(infected.get("descriptions", []))
+
+	if perceived.get("can_see", false):
+		descriptions.append_array(environment.get("description", []))
+	else:
+		descriptions = []
+	descriptions.append_array(perceived.get("description", []))
+
 	var journal: Array = state.get("journal", []).slice(-120).duplicate(true)
 	for entry: Dictionary in journal:
 		var entry_clock: int = (int(entry.get("time_s", 0)) + 16 * 3600 + 20 * 60) % 86400
 		entry["time_label"] = "%02d:%02d" % [entry_clock / 3600, (entry_clock / 60) % 60]
 	return {"location_id": location, "location_title": metadata.get("title", location),
 		"description": descriptions, "conditions": environment, "body": body,
-		"inventory": inventory, "people": world.get("npcs", []),
-		"objects": environment.get("objects", []) + world.get("resources", []) + infected.get("threats", []),
-		"threat_warnings": infected.get("warnings", []),
+		"inventory": inventory, "people": world.get("npcs", []) if perceived.get("can_see", false) else [],
+		"objects": (environment.get("objects", []) + world.get("resources", []) if perceived.get("can_see", false) else []) + perceived.get("visible", []),
+		"threat_warnings": perceived.get("warnings", []), "hearing": perceived.get("sounds", []),
+		"vision": {"light":"темно" if float(perceived.get("light", 0.0)) < 0.05 else ("сумрачно" if float(perceived.get("light", 0.0)) < 0.16 else "различимо")},
 		"routes": metadata.get("connections", []), "journal": journal,
 		"action": state.get("action", {}).duplicate(true), "goals": state.get("goals", []).duplicate(true),
 		"time_label": "%02d:%02d" % [clock / 3600, (clock / 60) % 60],

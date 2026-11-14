@@ -44,32 +44,39 @@ func apply(state: Dictionary, effect: Dictionary) -> void:
 
 func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 	var events: Array = []
-	if not is_finite(dt) or dt <= 0.0:
-		return events
+	if not is_finite(dt) or dt <= 0.0: return events
+	# No omniscient alerting: the target updates only on a physically audible
+	# source, and the last known location becomes stale after alert decays.
 	var player_location: String = str(context.get("player_location", ""))
 	var graph: Dictionary = context.get("graph", {})
-	var noise_db: float = maxf(0.0, float(context.get("noise_db", 0.0)))
-	var barrier_db: float = maxf(0.0, float(context.get("barrier_db", 0.0)))
+	var environmental: Dictionary = context.get("environment", {})
+	var acoustics_state: Dictionary = context.get("acoustics", {})
+	var acoustic_model: Variant = context.get("acoustic_model", null)
 	var weather_k: float = float(context.get("temperature_k", 280.15))
 	var ids: Array = state.agents.keys()
 	ids.sort()
 	for id: String in ids:
 		var agent: Dictionary = state.agents[id]
 		agent.contact_cooldown_s = maxf(0.0, float(agent.contact_cooldown_s) - dt)
-		# A deteriorating body loses locomotor capacity; frost can immobilise tissue.
 		var degradation: float = dt / (240.0 * 86400.0) * (1.0 if weather_k < 293.15 else 2.0)
 		agent.tissue_integrity = maxf(0.0, float(agent.tissue_integrity) - degradation)
-		var path_m: float = _shortest_distance(graph, str(agent.location), player_location)
-		var acoustic_distance_m: float = float(agent.distance_m) + path_m
-		var sound_range_m: float = HEARING_REFERENCE_M * pow(10.0, (noise_db - float(agent.hearing_threshold_db) - barrier_db) / 20.0)
-		if noise_db > 0.0 and acoustic_distance_m <= sound_range_m:
+		var source_location: String = ""
+		if acoustic_model != null and not acoustics_state.is_empty():
+			var stimuli: Array = acoustics_state.get("events", []).duplicate()
+			stimuli.reverse()
+			for stimulus: Dictionary in stimuli:
+				if str(stimulus.get("owner", "")) != "player": continue
+				if acoustic_model.can_hear(stimulus, str(agent.location), float(agent.distance_m),
+					float(agent.hearing_threshold_db), graph, environmental):
+					source_location = str(stimulus.location)
+					break
+		if not source_location.is_empty():
 			agent.alert_s = maxf(float(agent.alert_s), 600.0)
-			agent.target_location = player_location
+			agent.target_location = source_location
 		var alerted: bool = float(agent.alert_s) > 0.0
 		agent.alert_s = maxf(0.0, float(agent.alert_s) - dt)
 		var speed_m_s: float = 0.32 * float(agent.leg_integrity) * float(agent.tissue_integrity)
-		if weather_k < 268.15:
-			speed_m_s *= 0.6
+		if weather_k < 268.15: speed_m_s *= 0.6
 		var progress: float = dt * (speed_m_s if alerted else 0.006)
 		var remaining_m: float = maxf(0.0, float(agent.distance_m) - progress)
 		if alerted and remaining_m <= 0.0 and str(agent.location) != str(agent.target_location):
@@ -79,15 +86,18 @@ func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 				remaining_m = maxf(0.0, edge_m - maxf(0.0, progress - float(agent.distance_m)))
 				agent.location = next
 		elif not alerted and remaining_m <= 0.0 and str(agent.location) == "forest":
-			# Existing infected drift toward settlements, never materialise from thin air.
 			agent.location = "yard"
 			remaining_m = float(graph.forest.connections.yard)
 		agent.distance_m = remaining_m
-		if float(agent.alert_s) <= 0.0:
-			agent.target_location = ""
+		if float(agent.alert_s) <= 0.0: agent.target_location = ""
+		if acoustic_model != null and not acoustics_state.is_empty() and progress > 0.0:
+			# A moving body emits a finite, localizable but not identified sound.
+			acoustic_model.emit(acoustics_state, graph, str(agent.location), "shuffling",
+				64.0 if alerted else 60.0, id, float(agent.distance_m))
 		if str(agent.location) == player_location and float(agent.distance_m) <= 30.0 and not agent.close_reported:
 			agent.close_reported = true
-			events.append({"type":"infected_approach","location":player_location,"text":"Где-то совсем близко слышатся шаркающие шаги и прерывистое дыхание."})
+			events.append({"type":"infected_approach","location":player_location,
+				"text":"Где-то совсем близко слышатся шаркающие шаги и прерывистое дыхание."})
 		elif float(agent.distance_m) > 45.0:
 			agent.close_reported = false
 		if str(agent.location) == player_location and float(agent.distance_m) <= MIN_CONTACT_DISTANCE_M and float(agent.contact_cooldown_s) <= 0.0:
@@ -99,20 +109,17 @@ func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 	state.time_s += dt
 	return events
 
-func observe(state: Dictionary, location: String) -> Dictionary:
-	var result: Dictionary = {"descriptions":[],"warnings":[],"threats":[]}
+func observe(state: Dictionary, location: String, context: Dictionary = {}) -> Dictionary:
+	# Compatibility query for explicitly visible figures only; no audio guessing
+	# from raw NPC positions. Main observer now uses Perception for sight/sound.
+	var result: Dictionary = {"descriptions":[], "warnings":[], "threats":[]}
+	var visibility: float = maxf(0.0, float(context.get("visual_range_m", 0.0)))
 	for id: String in state.agents:
 		var agent: Dictionary = state.agents[id]
-		if str(agent.location) != location:
-			continue
-		var distance_m: float = float(agent.distance_m)
-		if distance_m <= 30.0:
-			result.warnings.append("Слышны близкие шаркающие шаги. Кто-то движется неестественно.")
-			result.threats.append({"id":id,"title":"Заражённый поблизости","text":"Фигура находится рядом. Вы видите неровную походку, но не знаете точного состояния её тела."})
-		elif distance_m <= 90.0:
-			result.descriptions.append("Между постройками или деревьями время от времени мелькает медленно движущийся силуэт.")
-		elif distance_m <= 160.0 and float(agent.alert_s) > 0.0:
-			result.descriptions.append("Издали раздаётся хрип и сухое шуршание.")
+		if str(agent.location) == location and float(agent.distance_m) <= visibility:
+			result.warnings.append("В поле зрения появляется движущаяся фигура.")
+			result.threats.append({"title":"Неровный силуэт", "text":"Вы различаете движения, но не знаете, кто перед вами."})
+			break
 	return result
 
 func validate_state(state: Dictionary, graph: Dictionary) -> String:

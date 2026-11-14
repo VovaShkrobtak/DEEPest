@@ -16,7 +16,7 @@ func _run() -> void:
 		break
 	check(scene.kernel.restore_state(fixture).ok, "Observed-threat fixture restores")
 	scene._refresh()
-	check(scene.snapshot.get("threat_warnings", []).size() > 0, "Source observation reports nearby infected")
+	check(scene.snapshot.get("threat_warnings", []).is_empty(), "Before time passes no unseen movement is reported through walls")
 	scene._perform("rest")
 	scene.action_timer.stop()
 	check(not scene.kernel.snapshot().action.is_empty(), "Long-running action starts with visible danger")
