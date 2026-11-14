@@ -3,6 +3,7 @@ extends RefCounted
 ## graph-grounded locomotion, energy-based barriers and physical contact.
 ## Fictional/approximate mechanics, NOT full 3D contact dynamics.
 const Navigation = preload("res://src/domain/infected_navigation.gd")
+const Anatomy = preload("res://src/domain/anatomy.gd")
 const START_COUNT: int = 3
 const MIN_CONTACT_DISTANCE_M: float = 1.5
 const MAX_MEMORY_S: float = 360.0
@@ -11,6 +12,7 @@ const RNG_MOD: int = 2147483647
 const POSTURES: Array[String] = ["upright","fallen","crawling"]
 const MODES: Array[String] = ["wander","investigate","pursue","search","obstructed","fallen","grapple"]
 var nav = Navigation.new()
+var anatomy = Anatomy.new()
 
 func initial_state(seed_value: int = 1998) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
@@ -23,7 +25,7 @@ func initial_state(seed_value: int = 1998) -> Dictionary:
 		agents[id]["leg_integrity"] = rng.randf_range(0.62,0.95)
 		agents[id]["tissue_integrity"] = rng.randf_range(0.70,0.98)
 		agents[id]["hearing_threshold_db"] = rng.randf_range(35.0,43.0)
-	return {"schema_version":2, "seed":seed_value, "time_s":0.0,
+	return {"schema_version":3, "seed":seed_value, "time_s":0.0,
 		"agents":agents, "contacts":0, "doors":nav.initial_state()}
 
 func _new_agent(seed_value: int, index: int) -> Dictionary:
@@ -36,13 +38,15 @@ func _new_agent(seed_value: int, index: int) -> Dictionary:
 		"last_stimulus_sequence":0, "rng_state":int((abs(seed_value) + 1 + (index+1)*57991) % (RNG_MOD-1)) + 1,
 		"stability":0.85, "fallen_s":0.0, "grapple_s":0.0,
 		"grapple_strength":0.0, "impact_cooldown_s":0.0,
-		"obstacle_delay_m":0.0, "obstacle_site":"", "search_origin":""}
+		"obstacle_delay_m":0.0, "obstacle_site":"", "search_origin":"",
+		"anatomy":anatomy.initial_state(false),"blood_kg":5.0,
+		"blood_loss_kg":0.0,"mass_kg":74.0,"alive":true}
 
 func migrate_state(saved: Dictionary) -> Dictionary:
 	# Legacy saves retain their original infected IDs, position, contact
 	# wounds and timing. This operation adds fields but never resurrects actors.
 	var upgraded: Dictionary = saved.duplicate(true)
-	if int(upgraded.get("schema_version",0)) != 1: return upgraded
+	if int(upgraded.get("schema_version",0)) not in [1,2]: return upgraded
 	if not upgraded.get("agents") is Dictionary: return upgraded
 	var ids: Array = upgraded.agents.keys()
 	ids.sort()
@@ -53,8 +57,8 @@ func migrate_state(saved: Dictionary) -> Dictionary:
 		for field: String in defaults:
 			if not upgraded.agents[id].has(field):
 				upgraded.agents[id][field] = defaults[field]
-	upgraded["doors"] = nav.initial_state()
-	upgraded["schema_version"] = 2
+	if not upgraded.has("doors"): upgraded["doors"] = nav.initial_state()
+	upgraded["schema_version"] = 3
 	return upgraded
 
 func availability(state: Dictionary, effect: Dictionary) -> String:
@@ -64,7 +68,7 @@ func availability(state: Dictionary, effect: Dictionary) -> String:
 		var found: bool = false
 		for id: String in state.agents:
 			var agent: Dictionary = state.agents[id]
-			if str(agent.location) != location: continue
+			if str(agent.location) != location or not bool(agent.get("alive",true)): continue
 			if kind == "break_grapple" and float(agent.grapple_s) > 0.0:
 				found = true
 			elif kind != "break_grapple" and float(agent.distance_m) <= (3.0 if kind == "shove" else 12.0):
@@ -82,7 +86,7 @@ func apply(state: Dictionary, effect: Dictionary) -> Dictionary:
 	candidates.sort()
 	for id: String in candidates:
 		var a: Dictionary = state.agents[id]
-		if str(a.location) != location: continue
+		if str(a.location) != location or not bool(a.get("alive",true)): continue
 		if kind == "break_grapple" and float(a.grapple_s) <= 0.0: continue
 		if kind == "shove" and float(a.distance_m) > 3.0: continue
 		if kind == "retreat" and float(a.distance_m) > 12.0: continue
@@ -144,6 +148,20 @@ func _tick(state: Dictionary, dt: float, context: Dictionary, events: Array) -> 
 		a.impact_cooldown_s = maxf(0.0,float(a.impact_cooldown_s)-dt)
 		a.tissue_integrity = maxf(0.0,float(a.tissue_integrity) -
 			dt / (240.0*86400.0) * (1.0 if warmth_k < 293.15 else 2.0))
+		if bool(a.alive):
+			var tissue_progress: Dictionary = anatomy.advance(a.anatomy,dt,
+				0.35 if float(a.memory_s)>0.0 else 0.10,0.3,float(a.blood_kg))
+			var lost: float = minf(float(a.blood_kg),float(tissue_progress.bleeding_kg))
+			a.blood_kg = maxf(0.0,float(a.blood_kg)-lost)
+			a.blood_loss_kg = float(a.blood_loss_kg)+lost
+			if float(a.blood_kg) < 2.0 or float(a.tissue_integrity) <= 0.005:
+				a.alive = false
+				a.grapple_s = 0.0
+				a.memory_s = 0.0
+				a.mode = "wander"
+				events.append({"type":"infected_collapse","location":str(a.location),
+					"actor_id":id,"offset_m":float(a.distance_m)})
+		if not bool(a.alive): continue
 		a.grapple_s = maxf(0.0,float(a.grapple_s)-dt)
 		a.memory_s = maxf(0.0,float(a.memory_s)-dt)
 		# Independent source acquisition; no knowledge of player ID from UI.
@@ -180,7 +198,9 @@ func _tick(state: Dictionary, dt: float, context: Dictionary, events: Array) -> 
 				events.append({"type":"infected_rise","location":str(a.location),"offset_m":float(a.distance_m)})
 			_emit_motion_sound(id,a,graph,sound_state,sound_model)
 			continue
-		var locomotion: float = 0.32 * float(a.leg_integrity) * float(a.tissue_integrity)
+		var physical: Dictionary = anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0)
+		var locomotion: float = 0.32 * float(a.leg_integrity) * float(a.tissue_integrity) * float(physical.mobility)
+		if float(physical.mobility) < 0.15: a.posture = "crawling"
 		if warmth_k < 268.15: locomotion *= 0.6
 		if a.posture == "crawling": locomotion = minf(0.055,locomotion*0.45)
 		var intentional: bool = a.mode in ["investigate","pursue","search","obstructed"]
@@ -270,7 +290,8 @@ func _progress_route(state: Dictionary, a: Dictionary, step_distance_m: float, g
 		# Door may be breached only from physically adjacent side, with a
 		# measured accumulated impact energy, not a scripted countdown.
 		if float(a.impact_cooldown_s) <= 0.0 and a.posture == "upright":
-			var impact: float = 45.0 * float(a.tissue_integrity) * float(a.leg_integrity)
+			var force: Dictionary = anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0)
+			var impact: float = 45.0 * float(a.tissue_integrity) * float(a.leg_integrity) * float(force.grip)
 			var strike: Dictionary = nav.strike(state.doors,str(a.location),destination,impact)
 			a.impact_cooldown_s = 20.0
 			events.append({"type":"infected_door_breach" if strike.get("breached",false) else "infected_door_hit",
@@ -298,12 +319,21 @@ func _choose_search_location(a: Dictionary, graph: Dictionary) -> void:
 	a.search_index = int(a.search_index)+1
 
 func _fall(a: Dictionary, wetness: float) -> void:
+
 	a.posture = "fallen"
 	a.mode = "fallen"
 	a.fallen_s = 24.0 + 50.0 * (1.0 - float(a.leg_integrity))
 	a.stability = maxf(0.0,float(a.stability)-0.26)
-	a.leg_integrity = maxf(0.0,float(a.leg_integrity)-0.015 * (1.0+wetness))
-	a.tissue_integrity = maxf(0.0,float(a.tissue_integrity)-0.004)
+	# The fall transfers mechanical energy into a selected leg's tissues.
+	var impact_j: float = float(a.mass_kg)*9.81*(0.43+wetness*0.12)
+	var landing_leg: String = "left_leg" if _roll(a)<0.5 else "right_leg"
+	anatomy.injure(a.anatomy,{"part":landing_leg,"wound_m2":0.00004,
+		"bleeding_kg_s":impact_j*0.000000001,
+		"contamination":clampf(0.13+wetness*0.15,0.0,1.0),
+		"tissue_damage":{"skin":clampf(impact_j/7000.0,0.0,0.2),
+			"muscle":clampf(impact_j/4000.0,0.0,0.25),
+			"bone":clampf(impact_j/14000.0,0.0,0.14),
+			"nerve":clampf(impact_j/30000.0,0.0,0.05)}})
 
 func _roll(a: Dictionary) -> float:
 	a.rng_state = int((int(a.rng_state) * 48271) % RNG_MOD)
@@ -319,7 +349,7 @@ func _contact(state: Dictionary, a: Dictionary, events: Array, location: String)
 	state.contacts = int(state.contacts)+1
 	var site: String = "left_arm" if int(state.contacts) % 2 == 1 else "right_arm"
 	if a.posture == "crawling": site = "left_leg" if int(state.contacts) % 2 == 1 else "right_leg"
-	var pressure: float = maxf(0.15,float(a.tissue_integrity))
+	var pressure: float = maxf(0.12,float(a.tissue_integrity)) * float(anatomy.capabilities(a.anatomy,float(a.blood_kg),0.0).grip)
 	a.grapple_s = 32.0 * pressure
 	a.grapple_strength = pressure * 0.8
 	a.mode = "grapple"
@@ -343,7 +373,7 @@ func observe(state: Dictionary, location: String, context: Dictionary = {}) -> D
 	return result
 
 func validate_state(state: Dictionary, graph: Dictionary) -> String:
-	if not state is Dictionary or state.get("schema_version") != 2 or not state.get("agents") is Dictionary:
+	if not state is Dictionary or state.get("schema_version") != 3 or not state.get("agents") is Dictionary:
 		return "Повреждена схема заражённых."
 	if not (state.get("seed") is int or state.get("seed") is float) or not _whole(state.get("seed")): return "Неверный seed заражённых."
 	if not (state.get("contacts") is int or state.get("contacts") is float) or not _whole(state.get("contacts")) or int(state.contacts) < 0: return "Некорректный счётчик контактов."
@@ -354,6 +384,9 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 		if not state.agents.has(id) or not state.agents[id] is Dictionary: return "Пропал постоянный заражённый."
 		var a: Dictionary = state.agents[id]
 		if a.size() != required[id].size(): return "Повреждена структура заражённого."
+		if not a.get("alive") is bool: return "Повреждён признак жизнеспособности заражённого."
+		var injury_reason: String = anatomy.validate_state(a.get("anatomy",{}))
+		if injury_reason != "": return injury_reason
 		for field: String in ["location","target_location","mode","posture","search_origin","obstacle_site"]:
 			if not a.get(field) is String: return "Неверный тип памяти заражённого."
 		if not graph.has(str(a.location)) or (str(a.target_location) != "" and not graph.has(str(a.target_location))):
@@ -364,12 +397,13 @@ func validate_state(state: Dictionary, graph: Dictionary) -> String:
 		for field: String in ["distance_m","alert_s","contact_cooldown_s","leg_integrity",
 				"tissue_integrity","hearing_threshold_db","memory_s","search_s",
 				"stability","fallen_s","grapple_s","grapple_strength","impact_cooldown_s",
-				"obstacle_delay_m"]:
+				"obstacle_delay_m","blood_kg","blood_loss_kg","mass_kg"]:
 			var value: Variant = a.get(field)
 			if not (value is float or value is int) or not is_finite(float(value)) or float(value) < 0.0:
 				return "Некорректная физическая величина заражённого: " + field
 		for field: String in ["leg_integrity","tissue_integrity","stability","grapple_strength"]:
 			if float(a[field]) > 1.0: return "Невозможная сохранность тканей и равновесия."
+		if float(a.blood_kg) > 8.0 or float(a.mass_kg) < 20.0 or float(a.mass_kg) > 250.0: return "Невозможная масса или объём крови заражённого."
 		if float(a.hearing_threshold_db) > 140.0 or float(a.grapple_s) > 240.0 or float(a.memory_s) > MAX_MEMORY_S or float(a.search_s) > SEARCH_S:
 			return "Невозможное сенсорное состояние заражённого."
 		for field: String in ["search_index","last_stimulus_sequence","rng_state"]:
