@@ -78,4 +78,4 @@ SimulationKernel → Observer.build(...) → публичный ObservationSnaps
 | UI15 | Включение/выключение движения и звука UI | Никакого эффекта на SimulationKernel |
 | UI16 | Поворот экрана при активной виртуальной клавиатуре | Ввод/курсор доступны, проверено на физическом Android |
 
-Проверенный автоматический срез — `tests/test_presentation.gd`, `tests/test_ui.gd`, `tests/test_project_viewport.gd`; пункты с устройством, screen reader и многоорганной сенсорикой пока требования. Статус конкретного SHA фиксирует GitHub Actions.
+Проверенный автоматический срез — `tests/test_presentation.gd`, `tests/test_ui.gd`, `tests/test_ui_attention.gd`, `tests/test_project_viewport.gd`; пункты с устройством, screen reader и многоорганной сенсорикой пока требования. Статус конкретного SHA фиксирует GitHub Actions.
