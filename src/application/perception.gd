@@ -19,7 +19,7 @@ func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictio
 	if float(body.get("fatigue", 0.0)) > 0.7: hearing_penalty_db += 4.0
 	var listening: bool = str(state.get("action", {}).get("id", "")) == "listen"
 	var sounds: Array = []
-	if conscious and alive:
+	if conscious and alive and hearing_penalty_db < 55.0:
 		sounds = modules.acoustics.hear(state.acoustics, location, modules.world.locations(), surroundings, 23.0 + hearing_penalty_db, 8.0 if listening else 0.0)
 	var warnings: Array = []
 	var descriptions: Array = []
@@ -48,7 +48,7 @@ func observe(state: Dictionary, modules: Dictionary, location: String) -> Dictio
 			break # Do not reveal exact count or identity from coarse location model.
 	return {"visible":visible, "warnings":warnings, "description":descriptions, "sounds":sounds,
 		"light":light, "visual_range_m":visibility_m, "can_see":visibility_m >= 1.0,
-		"can_hear":conscious and alive}
+		"can_hear":conscious and alive and hearing_penalty_db < 55.0}
 
 func illumination(state: Dictionary, location: String) -> float:
 	var elapsed: float = float(state.get("time_s", 0.0))

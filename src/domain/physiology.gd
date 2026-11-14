@@ -132,7 +132,11 @@ func _sync_local_injuries(state: Dictionary) -> void:
 	state.bandaged = anatomy.has_bandage(state.anatomy)
 
 func capabilities(state: Dictionary) -> Dictionary:
-	return anatomy.capabilities(state.anatomy, float(state.blood_kg), float(state.fatigue))
+	var values: Dictionary = anatomy.capabilities(state.anatomy, float(state.blood_kg), float(state.fatigue))
+	var systemic_factor: float = clampf(1.0 - float(state.infection) * 0.32, 0.6, 1.0)
+	for label: String in ["mobility", "grip", "precision"]:
+		values[label] = float(values[label]) * systemic_factor
+	return values
 
 func action_efficiency(state: Dictionary, verb: String) -> float:
 	var caps: Dictionary = capabilities(state)

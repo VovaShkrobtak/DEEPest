@@ -62,6 +62,15 @@ func injure_sense(state: Dictionary, organ: String, damage: float) -> bool:
 	state.adrenaline = minf(1.0, float(state.adrenaline) + 0.12)
 	return true
 
+func can_treat(state: Dictionary, kind: String, preferred: String = "") -> bool:
+	if not preferred.is_empty() and not state.get("parts", {}).has(preferred): return false
+	for part: String in PARTS:
+		if not preferred.is_empty() and part != preferred: continue
+		for wound: Dictionary in state.parts[part].wounds:
+			if kind == "bandage" and not bool(wound.bandaged): return true
+			if kind == "wash" and float(wound.contamination) > 0.0: return true
+	return false
+
 func treat(state: Dictionary, kind: String, preferred: String = "") -> bool:
 	var chosen: String = preferred
 	var candidate: Dictionary = {}
@@ -117,9 +126,10 @@ func advance(state: Dictionary, dt: float, stress: float, exertion: float, blood
 			local_inflammation = maxf(local_inflammation, float(wound.infection))
 		region.infection = clampf(local_inflammation - 0.0000001 * dt, 0.0, 1.0)
 		inflammation = maxf(inflammation, float(region.infection))
-	state.blood_loss_kg += blood_loss
+	var actual_loss: float = minf(maxf(0.0, blood_kg), blood_loss)
+	state.blood_loss_kg += actual_loss
 	_refresh_pain(state)
-	return {"bleeding_kg":minf(maxf(0.0, blood_kg), blood_loss),
+	return {"bleeding_kg":actual_loss,
 		"local_inflammation":inflammation}
 
 func _refresh_pain(state: Dictionary) -> void:
