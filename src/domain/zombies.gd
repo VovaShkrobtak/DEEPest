@@ -62,14 +62,24 @@ func advance(state: Dictionary, dt: float, context: Dictionary) -> Array:
 		agent.tissue_integrity = maxf(0.0, float(agent.tissue_integrity) - degradation)
 		var source_location: String = ""
 		if acoustic_model != null and not acoustics_state.is_empty():
-			var stimuli: Array = acoustics_state.get("events", []).duplicate()
-			stimuli.reverse()
-			for stimulus: Dictionary in stimuli:
-				if str(stimulus.get("owner", "")) != "player": continue
-				if acoustic_model.can_hear(stimulus, str(agent.location), float(agent.distance_m),
+			var stimuli: Array = acoustics_state.get("events", [])
+			var strongest: float = -INF
+			# Select the loudest available source: people, radio, fires and
+			# player actions compete under the SAME physical hearing rules.
+			# Do not let infected follow their own or each other's shuffle.
+			for index in range(maxi(0, stimuli.size() - 24), stimuli.size()):
+				var stimulus: Dictionary = stimuli[index]
+				var owner: String = str(stimulus.get("owner", ""))
+				if owner.begins_with("infected_"): continue
+				if not acoustic_model.can_hear(stimulus, str(agent.location), float(agent.distance_m),
 					float(agent.hearing_threshold_db), graph, environmental):
+					continue
+				var age_s: float = maxf(0.0, float(acoustics_state.time_s) - float(stimulus.time_s))
+				var salience: float = acoustic_model.received_db(stimulus,
+					str(agent.location), float(agent.distance_m), graph, environmental) - age_s * 0.08
+				if salience > strongest:
+					strongest = salience
 					source_location = str(stimulus.location)
-					break
 		if not source_location.is_empty():
 			agent.alert_s = maxf(float(agent.alert_s), 600.0)
 			agent.target_location = source_location

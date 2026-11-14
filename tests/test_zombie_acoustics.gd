@@ -40,6 +40,22 @@ func _initialize() -> void:
 	zombies.advance(wet, 10.0, {"player_location":"shelter", "graph":graph, "environment":environment,
 		"acoustic_model":sounds, "acoustics":wet_pulse})
 	check(wet.agents.infected_01.target_location == "", "Rain masks the same otherwise-audible source")
+
+	# A genuine world sound has the same acoustic reality regardless of who
+	# emitted it. A zombie must not magically ignore another person's steps.
+	environment.weather.rain = 0.0
+	var npc_noise: Dictionary = sounds.initial_state()
+	sounds.emit(npc_noise, graph, "yard", "footsteps", 80.0, "npc")
+	var npc_listener: Dictionary = original.duplicate(true)
+	zombies.advance(npc_listener, 10.0, {"player_location":"shelter", "graph":graph,
+		"environment":environment, "acoustic_model":sounds, "acoustics":npc_noise})
+	check(npc_listener.agents.infected_01.target_location == "yard", "Infected investigate audible NPC footsteps, not assumed player location")
+	var radio_noise: Dictionary = sounds.initial_state()
+	sounds.emit(radio_noise, graph, "shelter", "radio", 90.0, "player_radio")
+	var radio_listener: Dictionary = original.duplicate(true)
+	zombies.advance(radio_listener, 10.0, {"player_location":"yard", "graph":graph,
+		"environment":environment, "acoustic_model":sounds, "acoustics":radio_noise})
+	check(radio_listener.agents.infected_01.target_location == "shelter", "Infected can follow audible unattended radio instead of player")
 	print("Infected acoustic hearing: ", "PASS" if failures.is_empty() else JSON.stringify(failures))
 	quit(0 if failures.is_empty() else 1)
 func check(ok: bool, label: String) -> void:
