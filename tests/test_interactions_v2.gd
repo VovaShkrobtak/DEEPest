@@ -42,7 +42,15 @@ func _initialize() -> void:
 	if not resumed.export_state().action.is_empty():
 		mid.step(3600)
 		resumed.step(3600)
-		check(mid.export_state().assemblies==resumed.export_state().assemblies and mid.export_state().ground==resumed.export_state().ground,
+		var first_assemblies: Dictionary = JSON.parse_string(JSON.stringify(mid.export_state().assemblies))
+		var second_assemblies: Dictionary = JSON.parse_string(JSON.stringify(resumed.export_state().assemblies))
+		var first_ground: Dictionary = JSON.parse_string(JSON.stringify(mid.export_state().ground))
+		var second_ground: Dictionary = JSON.parse_string(JSON.stringify(resumed.export_state().ground))
+		if first_assemblies!=second_assemblies or first_ground!=second_ground:
+			print("DEBUG expected assembly: ",JSON.stringify(first_assemblies)," resumed: ",JSON.stringify(second_assemblies))
+			print("DEBUG expected ground: ",JSON.stringify(first_ground)," resumed: ",JSON.stringify(second_ground))
+			print("DEBUG expected action: ",JSON.stringify(mid.export_state().action)," resumed action: ",JSON.stringify(resumed.export_state().action))
+		check(first_assemblies==second_assemblies and first_ground==second_ground,
 			"Saved disassembly recovers exactly the same components without duplication")
 	check(perform(k,"ground_drop:matches",{"amount":3}),"Drop arbitrary inventory stack")
 	check(int(k.export_state().ground.shelter.matches)==3,"Matches persist at shelter")
