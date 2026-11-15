@@ -604,6 +604,8 @@ func _material_choice(parent: Node,title: String,available: Dictionary,allowed: 
 	if chooser.item_count==0:
 		chooser.add_item("Нет материалов")
 		chooser.disabled = true
+	else:
+		chooser.select(0)
 	field.add_child(chooser)
 	return chooser
 

@@ -91,6 +91,14 @@ func _run() -> void:
 		scene._select_tab(tab)
 		await process_frame
 		_check(scene.page.get_child_count() > 0, "Tab contains content: " + tab)
+	scene._select_tab("Вещи")
+	var craft: Button = _find_button(scene.page,"Собрать конструкцию")
+	_check(craft!=null and not craft.disabled,"Material-composition builder is available on the inventory page")
+	if craft!=null and not craft.disabled:
+		craft.pressed.emit()
+		_check(scene.kernel.export_state().action.get("id","")=="assembly_build","Builder submits an authoritative material assembly action")
+		scene.action_timer.stop()
+		scene._cancel()
 	scene._select_tab("Мир")
 	var before: Dictionary = scene.kernel.export_state()
 	var buttons: Array[Button] = []

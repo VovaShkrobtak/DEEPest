@@ -933,7 +933,7 @@ func validate_state(data: Dictionary) -> String:
 		injury_reason = modules.physiology.anatomy.validate_state(data.world.npcs[npc_id].body.anatomy)
 		if injury_reason != "": return injury_reason
 	if not data.action.is_empty():
-		var reason: String = _validate_saved_action(data.action,data.location,graph)
+		var reason: String = _validate_saved_action(data.action,data.location,graph,data.assemblies)
 		if reason != "": return reason
 	for id: String in data.work_progress:
 		var job: PackedStringArray = id.split("@")
@@ -948,7 +948,7 @@ func _work_key(id: String, location: String) -> String:
 func _duration(id: String) -> int:
 	return int({"inspect":60,"listen":20,"retreat":30,"shove":18,"break_grapple":12,"door_open":25,"door_close":25,"door_brace":90,"door_unbrace":60,"clean_chimney":600,"add_fuel":60,"light_fire":180,"extinguish":60,"ventilate":30,"seal_window":900,"boil_water":1200,"cook":900,"dry_clothes":1800,"fill_water":180,"gather_wood":1200,"hunt":3600,"plant":1200,"water_garden":180,"harvest":1200,"talk":300,"share_food":120,"trade":300,"help_nina":600,"drink":30,"eat":300,"craft_bandage":300,"bandage":180,"wash_wound":120,"rest":1800,"sleep":7200,"wait":600,"repair_radio":1500,"switch_radio":30,"switch_lamp":30,"repair_cart":1800,"prop_inspect":25,"prop_move":120,"prop_brace":180,"prop_unbrace":150,"prop_dismantle":600,"ground_take":45,"ground_drop":30,"assembly_build":600,"assembly_disassemble":480,"assembly_brace":180,"assembly_unbrace":120,"assembly_inspect":35,"assembly_move":180}.get(id,0))
 
-func _validate_saved_action(action: Dictionary, location: String, graph: Dictionary) -> String:
+func _validate_saved_action(action: Dictionary, location: String, graph: Dictionary, saved_assemblies: Dictionary) -> String:
 	for key: String in ["id","title","elapsed_s","duration_s","parameters","start_location"]:
 		if not action.has(key): return "Повреждено незавершённое действие."
 	if not action.id is String or not action.title is String or not action.parameters is Dictionary or not action.start_location is String: return "Неверный тип действия."
@@ -970,7 +970,7 @@ func _validate_saved_action(action: Dictionary, location: String, graph: Diction
 		else:
 			var assembly_id: String = str(action.parameters.get("assembly_id",""))
 			var other: String = str(action.parameters.get("other",""))
-			if not _state.assemblies.entities.has(assembly_id): return "Неизвестная конструкция действия."
+			if not saved_assemblies.entities.has(assembly_id): return "Неизвестная конструкция действия."
 			if action.id!=verb+":"+assembly_id+(":"+other if verb in ["assembly_move","assembly_brace"] else ""): return "Неверная команда конструкции."
 			if verb in ["assembly_move","assembly_brace"] and not graph[location].connections.has(other): return "Неизвестный проход."
 	elif verb.begins_with("prop_"):

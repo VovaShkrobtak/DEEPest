@@ -32,6 +32,18 @@ func _initialize() -> void:
 	check(k.export_state().assemblies.entities.is_empty(),"No stale construction")
 	check(int(k.export_state().ground.shelter.wood)==1 and int(k.export_state().ground.shelter.cloth)==1 and int(k.export_state().ground.shelter.wire)==1,"Recovery outputs exactly consumed components")
 	check(not k.command("assembly_disassemble:assembly_0001").ok,"Cannot duplicate reused parts")
+	var mid = Kernel.new(1998)
+	check(perform(mid,"assembly_build",material),"Create independent assembly for save-resume test")
+	check(mid.command("assembly_disassemble:assembly_0001").ok,"Begin real multi-stage disassembly")
+	mid.step(60)
+	var mid_snapshot: Dictionary = JSON.parse_string(JSON.stringify(mid.export_state()))
+	var resumed = Kernel.new(37)
+	check(resumed.restore_state(mid_snapshot).ok,"Mid-disassembly save loads using saved assembly identities")
+	if not resumed.export_state().action.is_empty():
+		mid.step(3600)
+		resumed.step(3600)
+		check(mid.export_state().assemblies==resumed.export_state().assemblies and mid.export_state().ground==resumed.export_state().ground,
+			"Saved disassembly recovers exactly the same components without duplication")
 	check(perform(k,"ground_drop:matches",{"amount":3}),"Drop arbitrary inventory stack")
 	check(int(k.export_state().ground.shelter.matches)==3,"Matches persist at shelter")
 	check(int(k.export_state().items.inventory.matches)==int(starting.items.inventory.matches)-3,"Inventory debited")
