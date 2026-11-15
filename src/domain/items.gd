@@ -141,7 +141,7 @@ func observe(state: Dictionary) -> Dictionary:
 	for id: String in MASS:
 		var quantity: int = int(state.inventory.get(id,0))
 		if quantity > 0:
-			items.append({"id":id,"title":TITLES[id],"quantity":quantity,"text":"%s × %d" % [TITLES[id],quantity]})
+			items.append({"id":id,"title":TITLES[id],"quantity":quantity,"unit_mass_kg":float(MASS[id]),"total_mass_kg":float(MASS[id])*quantity,"text":"%s × %d" % [TITLES[id],quantity]})
 	var equipment: Array = ["Тележка исправна" if state.cart_repaired else "Тележка требует ремонта","Радио исправно" if state.electricity.radio_repaired else "Радио не работает","Фонарь включён" if state.electricity.lamp_on else "Фонарь выключен"]
 	if float(state.food_age_warm_s) > 172800.0:
 		equipment.append("У продуктов изменился запах; безопасность неизвестна")
@@ -154,3 +154,12 @@ func observe(state: Dictionary) -> Dictionary:
 	if float(state.water.volume_kg) <= 0.0:
 		process_label = "Чайник пуст"
 	return {"items":items,"process_label":process_label,"water_text":"В чайнике около %.1f л, вода %s. %s." % [state.water.volume_kg,warmth,process_label + ". " + str(state.water.history)],"load_text":"Груз около %.1f / %.0f кг" % [mass_kg(state),capacity_kg(state)],"equipment":equipment}
+
+func observe_ground(location_items: Dictionary) -> Array:
+	var found: Array = []
+	for id: String in MASS:
+		var amount: int = int(location_items.get(id,0))
+		if amount>0:
+			found.append({"id":id,"title":TITLES[id],"quantity":amount,"unit_mass_kg":float(MASS[id]),
+				"total_mass_kg":float(MASS[id])*amount})
+	return found

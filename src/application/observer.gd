@@ -33,6 +33,8 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 
 
 	var visible_props: Array = modules.props.observe(state.props,location) if perceived.get("can_see",false) else []
+	var visible_assemblies: Array = modules.assemblies.observe(state.assemblies,location) if perceived.get("can_see",false) else []
+	var visible_ground: Array = modules.items.observe_ground(state.ground.get(location,{})) if perceived.get("can_see",false) else []
 	var visible_doors: Array = []
 	if perceived.get("can_see",false):
 		for portal: Dictionary in modules.zombies.nearby_doors(state.zombies,locations,location):
@@ -45,8 +47,8 @@ func build(state: Dictionary, modules: Dictionary) -> Dictionary:
 		entry["time_label"] = "%02d:%02d" % [entry_clock / 3600, (entry_clock / 60) % 60]
 	return {"location_id": location, "location_title": metadata.get("title", location),
 		"description": descriptions, "conditions": environment, "body": body,
-		"inventory": inventory, "people": world.get("npcs", []) if perceived.get("can_see", false) else [],
-		"objects": (environment.get("objects", []) + world.get("resources", []) if perceived.get("can_see", false) else []) + perceived.get("visible", []) + visible_doors + visible_props,
+		"inventory": inventory, "ground_items":visible_ground, "assemblies":visible_assemblies, "people": world.get("npcs", []) if perceived.get("can_see", false) else [],
+		"objects": (environment.get("objects", []) + world.get("resources", []) if perceived.get("can_see", false) else []) + perceived.get("visible", []) + visible_doors + visible_props + visible_assemblies,
 		"threat_warnings": perceived.get("warnings", []), "hearing": perceived.get("sounds", []),
 		"vision": {"light":"темно" if float(perceived.get("light", 0.0)) < 0.05 else ("сумрачно" if float(perceived.get("light", 0.0)) < 0.16 else "различимо")},
 		"routes": metadata.get("connections", []), "journal": journal,
