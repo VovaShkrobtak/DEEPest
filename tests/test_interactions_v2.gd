@@ -11,7 +11,7 @@ func _initialize() -> void:
 	var k = Kernel.new(1998)
 	var starting: Dictionary = k.export_state()
 	var material: Dictionary = {"a":"wood","b":"cloth","link":"wire"}
-	check(not k.command("assembly_build",{"a":"wood","b":"wood","link":"parts"}).ok,"Insufficient duplicate materials must fail")
+	check(not k.command("assembly_build",{"a":"wire","b":"wire","link":"wire"}).ok,"Insufficient duplicate materials must fail")
 	check(perform(k,"assembly_build",material),"Composition consumes real materials")
 	var state: Dictionary = k.export_state()
 	check(state.assemblies.entities.size()==1 and state.assemblies.entities.has("assembly_0001"),"Stable assembly identity")

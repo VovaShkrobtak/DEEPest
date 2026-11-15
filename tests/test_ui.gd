@@ -48,10 +48,45 @@ func _run() -> void:
 	await process_frame
 	_check(scene.navigation.visible and scene.side.visible, "Both desktop sidebars restore")
 	scene._select_tab("Действия")
+	await process_frame
+	_check(scene.main_scroll.get_v_scroll_bar().custom_minimum_size.x>=32.0,"Scrollbar has a >=32px finger target")
 	var catalog_buttons: Array[Button] = []
 	_find_actions(scene.page, catalog_buttons)
 	_check(not catalog_buttons.is_empty(), "Dedicated action catalogue uses contextual executable buttons")
+	if not catalog_buttons.is_empty():
+		_check(catalog_buttons[0].mouse_filter==Control.MOUSE_FILTER_PASS,"Action buttons allow propagated scrolling")
+		var before_gesture: String = JSON.stringify(scene.kernel.export_state())
+		var bounds: Rect2 = scene.main_scroll.get_global_rect()
+		var origin: Vector2 = bounds.position+Vector2(minf(100.0,bounds.size.x*0.4),minf(180.0,bounds.size.y*0.55))
+		var press := InputEventScreenTouch.new()
+		press.index = 0
+		press.pressed = true
+		press.position = origin
+		scene._input(press)
+		var drag := InputEventScreenDrag.new()
+		drag.index = 0
+		drag.position = origin+Vector2(0,-160)
+		drag.relative = Vector2(0,-160)
+		scene._input(drag)
+		_check(scene._scroll_touch_dragged and scene.main_scroll.scroll_vertical>0,"Finger dragging over buttons scrolls actions")
+		press.pressed = false
+		press.position = drag.position
+		scene._input(press)
+		catalog_buttons[0].pressed.emit()
+		_check(JSON.stringify(scene.kernel.export_state())==before_gesture,"Gesture release cannot activate action button")
+		var next_tap := InputEventScreenTouch.new()
+		next_tap.index = 0
+		next_tap.pressed = true
+		next_tap.position = origin
+		scene._input(next_tap)
+		_check(not scene._scroll_touch_dragged,"Next short tap resets gesture suppression")
+		next_tap.pressed = false
+		scene._input(next_tap)
 	_check(JSON.stringify(scene.kernel.export_state()) == ui_before, "Switching tabs never advances game time")
+	scene._select_tab("Вещи")
+	await process_frame
+	_check(_find_button(scene.page,"Всё")!=null,"Inventory renders stack action cards")
+	_check(scene.page.size.x<=scene.main_scroll.size.x+1,"Inventory cards do not overflow the phone width")
 	for tab in scene.TABS:
 		scene._select_tab(tab)
 		await process_frame

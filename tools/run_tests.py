@@ -39,7 +39,9 @@ def main() -> int:
                 output = result.stdout + result.stderr
                 bad = result.returncode != 0 or "SCRIPT ERROR" in output or "ERROR:" in output
             except subprocess.TimeoutExpired as error:
-                output = f"Timed out after 30s: {error}"
+                captured_out = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else (error.stdout or "")
+                captured_err = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+                output = f"Timed out after 30s: {error}\n{captured_out}\n{captured_err}"
                 bad = True
             except OSError as error:
                 output = str(error)

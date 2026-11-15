@@ -57,6 +57,10 @@ var status_toggle: Button
 var action_timer: Timer
 var mobile: bool = false
 var rebuilding: bool = false
+var _scroll_touch_active: bool = false
+var _scroll_touch_index: int = -1
+var _scroll_touch_start: Vector2 = Vector2.ZERO
+var _scroll_touch_dragged: bool = false
 var new_seed: int = 1998
 var settings_path: String = "user://interface.cfg"
 
@@ -163,6 +167,23 @@ func _build_shell() -> void:
 	layout.add_child(navigation)
 	main_scroll = ScrollContainer.new()
 	main_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_scroll.scroll_deadzone = 12
+	# An actual touch target, not a 4px-wide decorative scrollbar.
+	var scroll_bar: VScrollBar = main_scroll.get_v_scroll_bar()
+	scroll_bar.custom_minimum_size.x = 36
+	var scrollbar_track := StyleBoxFlat.new()
+	scrollbar_track.bg_color = Color("15252a")
+	scrollbar_track.set_corner_radius_all(7)
+	scrollbar_track.content_margin_left = 4
+	scrollbar_track.content_margin_right = 4
+	scroll_bar.add_theme_stylebox_override("scroll",scrollbar_track)
+	for state_name in ["grabber","grabber_highlight","grabber_pressed"]:
+		var thumb := StyleBoxFlat.new()
+		thumb.bg_color = Color("9fbac4") if state_name=="grabber" else AMBER
+		thumb.set_corner_radius_all(8)
+		thumb.content_margin_left = 5
+		thumb.content_margin_right = 5
+		scroll_bar.add_theme_stylebox_override(state_name,thumb)
 	main_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	layout.add_child(main_scroll)
@@ -205,8 +226,14 @@ func _button(title: String, callback: Callable) -> Button:
 	button.custom_minimum_size.y = 48
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	button.pressed.connect(_play_ui_click)
-	button.pressed.connect(callback)
+	# PASS allows wheel/trackpad scroll to reach the parent ScrollContainer.
+	# Finger drags are handled by _input and never activate a button.
+	button.mouse_filter = Control.MOUSE_FILTER_PASS
+	button.pressed.connect(func() -> void:
+		if _scroll_touch_dragged: return
+		_play_ui_click()
+		callback.call()
+	)
 	return button
 
 
@@ -480,13 +507,110 @@ func _running_action() -> void:
 	box.add_child(_button("Прервать действие", _cancel))
 
 
+
 func _items_page() -> void:
-	var inventory: Dictionary = snapshot.get("inventory", {})
-	_section(page, "С СОБОЙ", str(inventory.get("load_text", "")) + "\n" + str(inventory.get("water_text", "")))
-	_entries(inventory.get("items", []), "В доступных карманах ничего не обнаружено.")
-	_entries(inventory.get("equipment", []), "")
-	page.add_child(_label("СНАРЯЖЕНИЕ, ПИТАНИЕ И РАБОТА", 12, AMBER))
-	_actions(page, ["Вещи", "Вода и еда", "Ремесло", "Предметы"])
+	var inventory: Dictionary = snapshot.get("inventory",{})
+	_section(page,"ПЕРЕНОСИМЫЕ ВЕЩИ",str(inventory.get("load_text",""))+"\n"+str(inventory.get("water_text","")))
+	_stock_grid(inventory.get("items",[]),"ground_drop","С СОБОЙ",
+		"Ваши вещи. Можно оставить одну единицу или целую стопку; груз разгрузится только после выполнения действия.")
+	_stock_grid(snapshot.get("ground_items",[]),"ground_take","НА ЭТОМ МЕСТЕ",
+		"Вещи останутся именно в этом доме, на улице или в другой локации. Их можно подобрать позже.")
+	_assembly_builder(inventory.get("items",[]))
+	var constructions: Array = snapshot.get("assemblies",[])
+	if not constructions.is_empty():
+		var structure_box: VBoxContainer = _section(page,"СОБРАННЫЕ КОНСТРУКЦИИ","Постоянные объекты этого места. Они не занимают место в рюкзаке.")
+		for structure: Dictionary in constructions:
+			structure_box.add_child(_label(str(structure.title)+" · "+str(structure.text),13))
+	_actions(page,["Конструкции"])
+	_entries(inventory.get("equipment",[]),"")
+	page.add_child(_label("СНАРЯЖЕНИЕ, ПИТАНИЕ И РАБОТА",12,AMBER))
+	_actions(page,["Вещи","Вода и еда","Ремесло"])
+
+func _stock_grid(entries: Array,verb: String,title: String,explanation: String) -> void:
+	var section: VBoxContainer = _section(page,title,explanation)
+	if entries.is_empty():
+		section.add_child(_label("Пока ничего не видно." if verb=="ground_take" else "Снаряжение пусто.",13,MUTED))
+		return
+	var grid := GridContainer.new()
+	grid.columns = 1 if main_scroll.size.x < 470 else (2 if mobile else 3)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation",8)
+	grid.add_theme_constant_override("v_separation",8)
+	section.add_child(grid)
+	for record: Dictionary in entries:
+		var id: String = str(record.get("id",""))
+		var quantity: int = int(record.get("quantity",0))
+		if quantity<=0: continue
+		var tile := PanelContainer.new()
+		tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var tile_style := StyleBoxFlat.new()
+		tile_style.bg_color = Color("203036")
+		tile_style.set_corner_radius_all(8)
+		tile_style.content_margin_left = 10
+		tile_style.content_margin_right = 10
+		tile_style.content_margin_top = 12
+		tile_style.content_margin_bottom = 10
+		tile.add_theme_stylebox_override("panel",tile_style)
+		grid.add_child(tile)
+		var content := VBoxContainer.new()
+		tile.add_child(content)
+		content.add_child(_label(str(record.get("title",id)),15,INK))
+		content.add_child(_label("× %d  ·  %.2f кг" % [quantity,float(record.get("total_mass_kg",0.0))],12,MUTED))
+		content.add_child(_label("Оставить здесь:" if verb=="ground_drop" else "Подобрать:",12,AMBER))
+		var commands := HBoxContainer.new()
+		commands.add_theme_constant_override("separation",6)
+		content.add_child(commands)
+		var once: Button = _button("1",_perform.bind(verb+":"+id,{"amount":1}))
+		once.tooltip_text = "Оставить одну единицу" if verb=="ground_drop" else "Подобрать одну единицу"
+		commands.add_child(once)
+		if quantity>1:
+			var whole: Button = _button("Всё",_perform.bind(verb+":"+id,{"amount":quantity}))
+			whole.tooltip_text = "Оставить всю стопку" if verb=="ground_drop" else "Подобрать всё"
+			commands.add_child(whole)
+
+func _assembly_builder(entries: Array) -> void:
+	var box: VBoxContainer = _section(page,"ВЗАИМОДЕЙСТВИЯ 2.0 · СБОРКА",
+		"Выберите две детали и материал крепления. Сборка зависит от количества материалов, состояния рук и инструмента; готовая конструкция останется на месте.")
+	var available: Dictionary = {}
+	for entry: Dictionary in entries:
+		available[str(entry.id)] = entry
+	var selectors := GridContainer.new()
+	selectors.columns = 1 if main_scroll.size.x<600 else 3
+	selectors.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	selectors.add_theme_constant_override("h_separation",8)
+	selectors.add_theme_constant_override("v_separation",8)
+	box.add_child(selectors)
+	var a: OptionButton = _material_choice(selectors,"Деталь 1",available,["wood","cloth","wire","parts"])
+	var b: OptionButton = _material_choice(selectors,"Деталь 2",available,["wood","cloth","wire","parts"])
+	var link: OptionButton = _material_choice(selectors,"Соединить при помощи",available,["wire","cloth","parts"])
+	var button: Button = _button("Собрать конструкцию",_assemble_selected.bind(a,b,link))
+	button.disabled = a.disabled or b.disabled or link.disabled
+	box.add_child(button)
+
+func _material_choice(parent: Node,title: String,available: Dictionary,allowed: Array[String]) -> OptionButton:
+	var field := VBoxContainer.new()
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(field)
+	field.add_child(_label(title,12,MUTED))
+	var chooser := OptionButton.new()
+	chooser.custom_minimum_size.y = 48
+	chooser.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chooser.clip_text = true
+	for key: String in allowed:
+		if not available.has(key): continue
+		var index: int = chooser.item_count
+		chooser.add_item(str(available[key].get("title",key)))
+		chooser.set_item_metadata(index,key)
+	if chooser.item_count==0:
+		chooser.add_item("Нет материалов")
+		chooser.disabled = true
+	field.add_child(chooser)
+	return chooser
+
+func _assemble_selected(a: OptionButton,b: OptionButton,link: OptionButton) -> void:
+	if a.disabled or b.disabled or link.disabled: return
+	_perform("assembly_build",{"a":str(a.get_selected_metadata()),
+		"b":str(b.get_selected_metadata()),"link":str(link.get_selected_metadata())})
 
 func _body_page() -> void:
 	var body: Dictionary = snapshot.get("body", {})
@@ -593,14 +717,18 @@ func _settings_page() -> void:
 		_section(page, "DEBUG · СКРЫТЫЕ ДАННЫЕ МОДЕЛИ", JSON.stringify(kernel.debug_snapshot(), "  "))
 
 func _perform(id: String, parameters: Dictionary = {}) -> void:
+	var remembered_scroll: int = main_scroll.scroll_vertical
 	var result: Dictionary = kernel.command(id, parameters)
 	message = str(result.get("message", ""))
 	if result.get("ok", false):
 		autosave_protected = false
-		main_scroll.scroll_vertical = 0
 		if kernel.snapshot().get("action", {}).is_empty(): _autosave()
 	_refresh()
+	call_deferred("_restore_scroll_position",remembered_scroll)
 	_flash_notice()
+
+func _restore_scroll_position(value: int) -> void:
+	if is_instance_valid(main_scroll): main_scroll.scroll_vertical = value
 
 func _live_notice(observation: Dictionary, fallback: String) -> String:
 	# Use the public observation only; no hidden threat coordinates or domain state.
@@ -621,7 +749,9 @@ func _advance() -> void:
 	if snapshot.get("action", {}).is_empty():
 		if not snapshot.get("journal", []).is_empty(): message = str(snapshot.journal.back().get("text", message))
 		_autosave()
+		var remembered_scroll: int = main_scroll.scroll_vertical
 		_refresh()
+		call_deferred("_restore_scroll_position",remembered_scroll)
 		return
 	# Keep controls stable while fingers are down; update only the running indicators.
 	clock_label.text = str(snapshot.get("time_label", "")) if mobile else "%s\n%s" % [snapshot.get("time_label", ""), snapshot.get("date_label", "")]
@@ -813,6 +943,32 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if index >= 0 and index < TABS.size():
 			_select_tab(TABS[index])
 			get_viewport().set_input_as_handled()
+
+func _input(event: InputEvent) -> void:
+	# Process ScreenDrag at viewport level: Buttons otherwise absorb drag,
+	# so a finger moving over their faces cannot scroll the action list.
+	if not is_instance_valid(main_scroll): return
+	if event is InputEventScreenTouch:
+		var touch: InputEventScreenTouch = event
+		if touch.pressed:
+			_scroll_touch_dragged = false
+			var bar: VScrollBar = main_scroll.get_v_scroll_bar()
+			_scroll_touch_active = main_scroll.get_global_rect().has_point(touch.position) and not bar.get_global_rect().has_point(touch.position)
+			_scroll_touch_index = touch.index if _scroll_touch_active else -1
+			_scroll_touch_start = touch.position
+		elif touch.index==_scroll_touch_index:
+			_scroll_touch_active = false
+			_scroll_touch_index = -1
+	elif event is InputEventScreenDrag:
+		var drag: InputEventScreenDrag = event
+		if not _scroll_touch_active or drag.index!=_scroll_touch_index: return
+		if (drag.position-_scroll_touch_start).length()>12.0: _scroll_touch_dragged = true
+		if _scroll_touch_dragged:
+			main_scroll.scroll_vertical = maxi(0,main_scroll.scroll_vertical-roundi(drag.relative.y))
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
+		var mouse: InputEventMouseButton = event
+		if mouse.pressed and mouse.button_index==MOUSE_BUTTON_LEFT: _scroll_touch_dragged = false
 
 func _process(delta: float) -> void:
 	keyboard_poll += delta
